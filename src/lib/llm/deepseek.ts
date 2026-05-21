@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT, type ParsedReceipt } from "./schema";
-import { tryParseReceipt, compressWhitespace } from "./util";
+import { tryParseReceipt, compressWhitespace, withRetry } from "./util";
 
 function getClient() {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -19,16 +19,21 @@ export async function parseWithDeepSeek(text: string): Promise<ParsedReceipt> {
   const cleaned = compressWhitespace(text);
 
   const callOnce = async (userContent: string) => {
-    const res = await client.chat.completions.create({
-      model: "deepseek-chat",
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.1,
-    });
-    return res.choices[0]?.message?.content ?? "";
+    return withRetry(
+      async () => {
+        const res = await client.chat.completions.create({
+          model: "deepseek-chat",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: userContent },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.1,
+        });
+        return res.choices[0]?.message?.content ?? "";
+      },
+      { label: "DeepSeek", attempts: 3, baseDelayMs: 1500 },
+    );
   };
 
   const raw = await callOnce(cleaned);

@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { SYSTEM_PROMPT, type ParsedReceipt } from "./schema";
-import { tryParseReceipt, compressWhitespace } from "./util";
+import { tryParseReceipt, compressWhitespace, withRetry } from "./util";
 
 function getModel() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -25,11 +25,16 @@ export async function parseWithGemini(
   const base64 = Buffer.from(bytes).toString("base64");
 
   const callOnce = async (extraInstruction = "") => {
-    const res = await model.generateContent([
-      { text: SYSTEM_PROMPT + (extraInstruction ? `\n\n${extraInstruction}` : "") },
-      { inlineData: { mimeType, data: base64 } },
-    ]);
-    return res.response.text();
+    return withRetry(
+      async () => {
+        const res = await model.generateContent([
+          { text: SYSTEM_PROMPT + (extraInstruction ? `\n\n${extraInstruction}` : "") },
+          { inlineData: { mimeType, data: base64 } },
+        ]);
+        return res.response.text();
+      },
+      { label: "Gemini vision", attempts: 3, baseDelayMs: 1500 },
+    );
   };
 
   const raw = await callOnce();
@@ -55,8 +60,13 @@ export async function parseGeminiText(text: string): Promise<ParsedReceipt> {
       (extraInstruction ? `\n\n${extraInstruction}` : "") +
       "\n\nReceipt:\n" +
       cleaned;
-    const res = await model.generateContent(fullPrompt);
-    return res.response.text();
+    return withRetry(
+      async () => {
+        const res = await model.generateContent(fullPrompt);
+        return res.response.text();
+      },
+      { label: "Gemini text", attempts: 3, baseDelayMs: 1500 },
+    );
   };
 
   const raw = await callOnce();
