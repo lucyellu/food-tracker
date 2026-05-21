@@ -17,6 +17,8 @@ export default function Home() {
   async function submit() {
     setError(null);
     setLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120_000);
     try {
       let res: Response;
       if (mode === "image") {
@@ -27,7 +29,11 @@ export default function Home() {
         }
         const form = new FormData();
         form.append("file", file);
-        res = await fetch("/api/parse-receipt", { method: "POST", body: form });
+        res = await fetch("/api/parse-receipt", {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+        });
       } else {
         if (!text.trim()) {
           setError(mode === "email" ? "Paste the email body first." : "Paste receipt text first.");
@@ -38,6 +44,7 @@ export default function Home() {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ kind: mode, text }),
+          signal: controller.signal,
         });
       }
 
@@ -49,8 +56,16 @@ export default function Home() {
       }
       router.push(`/receipts/${data.receiptId}`);
     } catch (e) {
-      setError((e as Error).message);
+      const err = e as Error;
+      if (err.name === "AbortError") {
+        setError(
+          "Parse took longer than 2 minutes and was cancelled. Try a shorter receipt, an image instead of pasted text, or check the dev server console for the actual error.",
+        );
+      } else {
+        setError(err.message);
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }

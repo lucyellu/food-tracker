@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { SYSTEM_PROMPT, ParsedReceiptSchema, type ParsedReceipt } from "./schema";
+import { SYSTEM_PROMPT, type ParsedReceipt } from "./schema";
+import { tryParseReceipt, compressWhitespace } from "./util";
 
 function getModel() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -32,28 +33,41 @@ export async function parseWithGemini(
   };
 
   const raw = await callOnce();
-  const parsed = tryParse(raw);
+  const parsed = tryParseReceipt(raw);
   if (parsed.ok) return parsed.value;
 
   const retry = await callOnce(
     `Your previous response was invalid: ${parsed.error}\nReturn only valid JSON matching the schema.`,
   );
-  const reparsed = tryParse(retry);
+  const reparsed = tryParseReceipt(retry);
   if (reparsed.ok) return reparsed.value;
 
   throw new Error(`Gemini returned invalid JSON twice: ${reparsed.error}`);
 }
 
-function tryParse(raw: string): { ok: true; value: ParsedReceipt } | { ok: false; error: string } {
-  let json: unknown;
-  try {
-    json = JSON.parse(raw);
-  } catch (e) {
-    return { ok: false, error: `JSON parse error: ${(e as Error).message}` };
-  }
-  const result = ParsedReceiptSchema.safeParse(json);
-  if (!result.success) {
-    return { ok: false, error: `Schema validation: ${result.error.message}` };
-  }
-  return { ok: true, value: result.data };
+export async function parseGeminiText(text: string): Promise<ParsedReceipt> {
+  const model = getModel();
+  const cleaned = compressWhitespace(text);
+
+  const callOnce = async (extraInstruction = "") => {
+    const fullPrompt =
+      SYSTEM_PROMPT +
+      (extraInstruction ? `\n\n${extraInstruction}` : "") +
+      "\n\nReceipt:\n" +
+      cleaned;
+    const res = await model.generateContent(fullPrompt);
+    return res.response.text();
+  };
+
+  const raw = await callOnce();
+  const parsed = tryParseReceipt(raw);
+  if (parsed.ok) return parsed.value;
+
+  const retry = await callOnce(
+    `Your previous response was invalid: ${parsed.error}\nReturn only valid JSON matching the schema.`,
+  );
+  const reparsed = tryParseReceipt(retry);
+  if (reparsed.ok) return reparsed.value;
+
+  throw new Error(`Gemini returned invalid JSON twice: ${reparsed.error}`);
 }
