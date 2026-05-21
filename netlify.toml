@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Phase 3.5 (auto-ingest grocery receipts from Gmail) will add a scheduled
+# function here:
+# [functions."poll-email"]
+#   schedule = "*/5 * * * *"

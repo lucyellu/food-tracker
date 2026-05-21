@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# raw secret dumps used by setkey --import (never commit these)
+keys.txt
+keys.*.txt
+secrets.txt
+
+# unrelated working data parked in this directory — not part of the app
+/files/
+
+# uploaded receipt images during local dev (Netlify Blobs in deploy)
+/tmp-uploads
