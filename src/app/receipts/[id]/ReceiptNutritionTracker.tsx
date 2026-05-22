@@ -1,6 +1,7 @@
 "use client";
 
-import { type MouseEvent, useMemo, useState } from "react";
+import Link from "next/link";
+import { type CSSProperties, type MouseEvent, useMemo, useState } from "react";
 
 type ConsumptionStatus =
   | "available"
@@ -78,6 +79,14 @@ export type ReceiptConsumptionLog = {
   note: string | null;
 };
 
+export type ReceiptOutline = {
+  id: number;
+  vendor: string | null;
+  purchasedAt: string | null;
+  total: number | null;
+  itemCount: number;
+};
+
 type Totals = {
   price: number;
   calories: number;
@@ -139,6 +148,16 @@ const LOG_UNITS: LogUnit[] = ["item", "serving", "g", "100g"];
 function formatMoney(n: number | null | undefined) {
   if (n == null) return "-";
   return `$${n.toFixed(2)}`;
+}
+
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return "-";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  try {
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return iso;
+  }
 }
 
 function formatNumber(n: number | null | undefined, digits = 0) {
@@ -509,11 +528,13 @@ export function ReceiptNutritionTracker({
   receiptId,
   initialItems,
   initialLogs,
+  receiptOutline,
   purchasedAt,
 }: {
   receiptId: number;
   initialItems: ReceiptTrackerItem[];
   initialLogs: ReceiptConsumptionLog[];
+  receiptOutline: ReceiptOutline[];
   purchasedAt: string | null;
 }) {
   const startDate = purchasedAt && /^\d{4}-\d{2}-\d{2}$/.test(purchasedAt) ? purchasedAt : todayIso();
@@ -531,6 +552,8 @@ export function ReceiptNutritionTracker({
   const [logUnit, setLogUnit] = useState<LogUnit>("item");
   const [logAt, setLogAt] = useState(nowForDateTimeInput());
   const [logNote, setLogNote] = useState("");
+  const [outlineWidth, setOutlineWidth] = useState(250);
+  const [detailsWidth, setDetailsWidth] = useState(370);
   const [saving, setSaving] = useState(false);
 
   const planEnd = addDaysToIso(startDate, Math.max(days, 1));
@@ -592,6 +615,10 @@ export function ReceiptNutritionTracker({
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const unknownNutritionRows = allTotals.itemCount - allTotals.knownItems - statusCounts.refunded;
   const selectedDenominator = rateDivisor(selectedRate, selectedTotals, people, days);
+  const laneStyle = {
+    "--receipt-lane": `${outlineWidth}px`,
+    "--details-lane": `${detailsWidth}px`,
+  } as CSSProperties;
 
   function toggleSelected(id: number) {
     setSelectedIds((current) => {
@@ -932,73 +959,149 @@ export function ReceiptNutritionTracker({
         />
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-sm">
-            <span className="mb-1 block text-xs text-zinc-500">People</span>
-            <input
-              type="number"
-              min={1}
-              value={people}
-              onChange={(e) => setPeople(Math.max(Number(e.target.value) || 1, 1))}
-              className="w-20 rounded-md border border-zinc-200 bg-transparent px-2 py-1 dark:border-zinc-800"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-xs text-zinc-500">Days</span>
-            <input
-              type="number"
-              min={1}
-              value={days}
-              onChange={(e) => setDays(Math.max(Number(e.target.value) || 1, 1))}
-              className="w-20 rounded-md border border-zinc-200 bg-transparent px-2 py-1 dark:border-zinc-800"
-            />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-xs text-zinc-500">Status date</span>
-            <input
-              type="date"
-              value={statusDate}
-              onChange={(e) => setStatusDate(e.target.value)}
-              className="rounded-md border border-zinc-200 bg-transparent px-2 py-1 dark:border-zinc-800"
-            />
-          </label>
-          <div className="text-xs text-zinc-500">
-            Range is {startDate} to {planEnd}. Plan totals exclude disposed, unavailable, and refunded rows.
+      <div
+        className="grid items-start gap-4 xl:grid-cols-[var(--receipt-lane)_minmax(0,1fr)_var(--details-lane)]"
+        style={laneStyle}
+      >
+        <aside className="h-[72vh] space-y-4 overflow-auto rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4">
+          <div>
+            <div className="text-sm font-semibold">Receipts</div>
+            <div className="mt-1 text-xs text-zinc-500">{receiptOutline.length} saved</div>
+            <div className="mt-3 space-y-2">
+              {receiptOutline.map((receipt) => {
+                const active = receipt.id === receiptId;
+                return (
+                  <Link
+                    key={receipt.id}
+                    href={`/receipts/${receipt.id}`}
+                    className={`block rounded-md border px-3 py-2 text-xs transition-colors ${
+                      active
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+                        : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    <span className="block truncate font-medium">{receipt.vendor ?? "Unknown vendor"}</span>
+                    <span className={`mt-1 block ${active ? "opacity-75" : "text-zinc-500"}`}>
+                      {formatDate(receipt.purchasedAt)} · {receipt.itemCount} rows
+                    </span>
+                    <span className={`mt-1 block ${active ? "opacity-75" : "text-zinc-500"}`}>
+                      {formatMoney(receipt.total)}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
           </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          {STATUS_OPTIONS.map((status) => (
-            <span key={status} className="rounded-full bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
-              {STATUS_META[status].label}: {statusCounts[status]}
-            </span>
-          ))}
-          <span className="rounded-full bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
-            No quantity nutrition: {Math.max(unknownNutritionRows, 0)}
-          </span>
-        </div>
-      </div>
 
-      <div className="flex flex-wrap gap-2">
-        {(["table", "pantry", "consumed", "calendar"] as ViewMode[]).map((nextView) => (
-          <button
-            key={nextView}
-            type="button"
-            onClick={() => setView(nextView)}
-            className={`rounded-md border px-3 py-2 text-sm font-medium ${
-              view === nextView
-                ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
-                : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
-            }`}
-          >
-            {nextView === "table" ? "All items" : nextView === "pantry" ? "Pantry/fridge" : nextView === "consumed" ? "Consumed" : "Calendar"}
-          </button>
-        ))}
-      </div>
+          <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <div className="text-xs font-medium text-zinc-500">View</div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {(["table", "pantry", "consumed", "calendar"] as ViewMode[]).map((nextView) => (
+                <button
+                  key={nextView}
+                  type="button"
+                  onClick={() => setView(nextView)}
+                  className={`rounded-md border px-2 py-2 text-xs font-medium ${
+                    view === nextView
+                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+                      : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {nextView === "table"
+                    ? "Items"
+                    : nextView === "pantry"
+                      ? "Pantry"
+                      : nextView === "consumed"
+                        ? "Eaten"
+                        : "Calendar"}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <div className="text-xs font-medium text-zinc-500">Plan</div>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">People</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={people}
+                  onChange={(e) => setPeople(Math.max(Number(e.target.value) || 1, 1))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">Days</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={days}
+                  onChange={(e) => setDays(Math.max(Number(e.target.value) || 1, 1))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="col-span-2 text-xs">
+                <span className="mb-1 block text-zinc-500">Status date</span>
+                <input
+                  type="date"
+                  value={statusDate}
+                  onChange={(e) => setStatusDate(e.target.value)}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              {startDate} to {planEnd}. Excludes disposed, unavailable, and refunded rows.
+            </div>
+          </div>
+
+          <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <div className="text-xs font-medium text-zinc-500">Lane widths</div>
+            <label className="mt-2 block text-xs">
+              <span className="mb-1 block text-zinc-500">Receipts {outlineWidth}px</span>
+              <input
+                type="range"
+                min={210}
+                max={340}
+                value={outlineWidth}
+                onInput={(e) => setOutlineWidth(Number(e.currentTarget.value))}
+                onChange={(e) => setOutlineWidth(Number(e.target.value))}
+                className="w-full accent-zinc-900 dark:accent-zinc-100"
+              />
+            </label>
+            <label className="mt-2 block text-xs">
+              <span className="mb-1 block text-zinc-500">Details {detailsWidth}px</span>
+              <input
+                type="range"
+                min={320}
+                max={520}
+                value={detailsWidth}
+                onInput={(e) => setDetailsWidth(Number(e.currentTarget.value))}
+                onChange={(e) => setDetailsWidth(Number(e.target.value))}
+                className="w-full accent-zinc-900 dark:accent-zinc-100"
+              />
+            </label>
+          </div>
+
+          <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <div className="text-xs font-medium text-zinc-500">Receipt state</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              {STATUS_OPTIONS.map((status) => (
+                <span key={status} className="rounded-full bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
+                  {STATUS_META[status].label}: {statusCounts[status]}
+                </span>
+              ))}
+              <span className="rounded-full bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
+                No quantity nutrition: {Math.max(unknownNutritionRows, 0)}
+              </span>
+            </div>
+          </div>
+        </aside>
+
         {view === "calendar" ? (
-          <div className="space-y-3">
+          <div className="h-[72vh] space-y-3 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-950/50">
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
               <div>
                 <div className="text-sm font-semibold">{calendarTitle(calendarCursor, calendarMode)}</div>

@@ -30,7 +30,7 @@ export default function RootLayout({
             </div>
           </nav>
         </header>
-        <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-8">{children}</main>
+        <main className="flex-1 max-w-[1800px] w-full mx-auto px-4 sm:px-6 py-8">{children}</main>
       </body>
     </html>
   );

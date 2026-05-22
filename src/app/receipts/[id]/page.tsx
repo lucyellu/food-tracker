@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { EnrichNutritionButton } from "./EnrichNutritionButton";
 import { EnrichProductsButton } from "./EnrichProductsButton";
@@ -32,6 +32,21 @@ async function getReceipt(id: number) {
     .where(eq(schema.consumptionLogs.receiptId, id))
     .orderBy(asc(schema.consumptionLogs.consumedAt), asc(schema.consumptionLogs.id));
   return { receipt, items, logs };
+}
+
+async function getReceiptOutline() {
+  return db
+    .select({
+      id: schema.receipts.id,
+      vendor: schema.receipts.vendor,
+      purchasedAt: schema.receipts.purchasedAt,
+      total: schema.receipts.total,
+      itemCount: sql<number>`COUNT(${schema.lineItems.id})`.as("item_count"),
+    })
+    .from(schema.receipts)
+    .leftJoin(schema.lineItems, eq(schema.lineItems.receiptId, schema.receipts.id))
+    .groupBy(schema.receipts.id)
+    .orderBy(desc(schema.receipts.createdAt));
 }
 
 function formatMoney(n: number | null) {
@@ -72,7 +87,10 @@ export default async function ReceiptDetailPage({
   const receiptId = Number(id);
   if (!Number.isFinite(receiptId)) notFound();
 
-  const data = await getReceipt(receiptId);
+  const [data, receiptOutline] = await Promise.all([
+    getReceipt(receiptId),
+    getReceiptOutline(),
+  ]);
   if (!data) notFound();
   const { receipt, items, logs } = data;
   const trackerItems = items.map((item) => ({
@@ -107,6 +125,7 @@ export default async function ReceiptDetailPage({
         receiptId={receiptId}
         initialItems={trackerItems}
         initialLogs={logs}
+        receiptOutline={receiptOutline}
         purchasedAt={receipt.purchasedAt}
       />
 
