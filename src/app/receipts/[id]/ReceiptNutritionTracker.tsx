@@ -554,6 +554,8 @@ export function ReceiptNutritionTracker({
   const [logNote, setLogNote] = useState("");
   const [outlineWidth, setOutlineWidth] = useState(250);
   const [detailsWidth, setDetailsWidth] = useState(370);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
+  const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const planEnd = addDaysToIso(startDate, Math.max(days, 1));
@@ -616,8 +618,8 @@ export function ReceiptNutritionTracker({
   const unknownNutritionRows = allTotals.itemCount - allTotals.knownItems - statusCounts.refunded;
   const selectedDenominator = rateDivisor(selectedRate, selectedTotals, people, days);
   const laneStyle = {
-    "--receipt-lane": `${outlineWidth}px`,
-    "--details-lane": `${detailsWidth}px`,
+    "--receipt-lane": outlineCollapsed ? "52px" : `${outlineWidth}px`,
+    "--details-lane": detailsCollapsed ? "52px" : `${detailsWidth}px`,
   } as CSSProperties;
 
   function toggleSelected(id: number) {
@@ -963,10 +965,44 @@ export function ReceiptNutritionTracker({
         className="grid items-start gap-4 xl:grid-cols-[var(--receipt-lane)_minmax(0,1fr)_var(--details-lane)]"
         style={laneStyle}
       >
-        <aside className="h-[72vh] space-y-4 overflow-auto rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4">
-          <div>
-            <div className="text-sm font-semibold">Receipts</div>
-            <div className="mt-1 text-xs text-zinc-500">{receiptOutline.length} saved</div>
+        <aside
+          className={`rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4 ${
+            outlineCollapsed ? "min-h-12 overflow-hidden p-2 xl:h-[72vh]" : "h-[72vh] space-y-4 overflow-auto p-4"
+          }`}
+        >
+          {outlineCollapsed ? (
+            <div className="flex h-full flex-row items-center gap-3 xl:flex-col">
+              <button
+                type="button"
+                onClick={() => setOutlineCollapsed(false)}
+                aria-label="Expand receipts lane"
+                title="Expand receipts lane"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-zinc-200 text-sm font-semibold hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+              >
+                +
+              </button>
+              <div className="text-xs font-medium text-zinc-500 xl:origin-center xl:rotate-90 xl:whitespace-nowrap">
+                Receipts
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold">Receipts</div>
+                    <div className="mt-1 text-xs text-zinc-500">{receiptOutline.length} saved</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setOutlineCollapsed(true)}
+                    aria-label="Collapse receipts lane"
+                    title="Collapse receipts lane"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-zinc-200 text-sm font-semibold hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  >
+                    -
+                  </button>
+                </div>
             <div className="mt-3 space-y-2">
               {receiptOutline.map((receipt) => {
                 const active = receipt.id === receiptId;
@@ -1098,6 +1134,8 @@ export function ReceiptNutritionTracker({
               </span>
             </div>
           </div>
+            </>
+          )}
         </aside>
 
         {view === "calendar" ? (
@@ -1195,14 +1233,48 @@ export function ReceiptNutritionTracker({
           renderItemsTable(visibleItems)
         )}
 
-        <aside className="h-[72vh] space-y-4 overflow-auto rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4">
-          <div>
-            <div className="text-sm font-semibold">Selected items</div>
-            <div className="mt-1 text-xs text-zinc-500">
-              {selectedTotals.itemCount} selected · {selectedTotals.knownItems} with nutrition totals ·{" "}
-              {formatNumber(selectedTotals.servings, 1)} servings · {formatMassG(selectedTotals.totalGrams)}
+        <aside
+          className={`rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4 ${
+            detailsCollapsed ? "min-h-12 overflow-hidden p-2 xl:h-[72vh]" : "h-[72vh] space-y-4 overflow-auto p-4"
+          }`}
+        >
+          {detailsCollapsed ? (
+            <div className="flex h-full flex-row items-center gap-3 xl:flex-col">
+              <button
+                type="button"
+                onClick={() => setDetailsCollapsed(false)}
+                aria-label="Expand details lane"
+                title="Expand details lane"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-zinc-200 text-sm font-semibold hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+              >
+                +
+              </button>
+              <div className="text-xs font-medium text-zinc-500 xl:origin-center xl:rotate-90 xl:whitespace-nowrap">
+                Portion details
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold">Selected items</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {selectedTotals.itemCount} selected · {selectedTotals.knownItems} with nutrition totals ·{" "}
+                      {formatNumber(selectedTotals.servings, 1)} servings · {formatMassG(selectedTotals.totalGrams)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDetailsCollapsed(true)}
+                    aria-label="Collapse details lane"
+                    title="Collapse details lane"
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-zinc-200 text-sm font-semibold hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  >
+                    -
+                  </button>
+                </div>
+            </div>
           <label className="block text-sm">
             <span className="mb-1 block text-xs text-zinc-500">Selected total basis</span>
             <select
@@ -1396,6 +1468,8 @@ export function ReceiptNutritionTracker({
             The 44 receipt rows include fulfilled, refunded, and unmatched rows. Nutrition totals only count rows with
             both a USDA match and enough size data to estimate the whole item.
           </div>
+            </>
+          )}
         </aside>
       </div>
     </div>
