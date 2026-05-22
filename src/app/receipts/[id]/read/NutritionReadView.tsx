@@ -423,15 +423,20 @@ function itemSourceValue(item: ReceiptTrackerItem, row: NutrientRow) {
 }
 
 function topSources(items: ReceiptTrackerItem[], row: NutrientRow) {
-  return items
+  const sources = items
     .map((item) => ({
       id: item.id,
       name: item.rawName,
       value: itemSourceValue(item, row),
     }))
     .filter((item): item is { id: number; name: string; value: number } => item.value != null && item.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 4);
+    .sort((a, b) => b.value - a.value);
+  const total = sources.reduce((sum, source) => sum + source.value, 0);
+
+  return sources.slice(0, 4).map((source) => ({
+    ...source,
+    share: total > 0 ? (source.value / total) * 100 : 0,
+  }));
 }
 
 function addDaysToIso(iso: string | null, days: number) {
@@ -669,9 +674,20 @@ export function NutritionReadView({
                       {sources.length ? (
                         sources.map((source) => (
                           <div key={source.id} className="rounded bg-zinc-50 px-2 py-1.5 dark:bg-zinc-950">
-                            <div className="truncate font-medium">{source.name}</div>
-                            <div className="mt-0.5 text-zinc-500">
-                              {fmt(source.value, source.value < 10 ? 1 : 0)} {row.unit}
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{source.name}</div>
+                                <div className="mt-0.5 text-zinc-500">
+                                  {fmt(source.value, source.value < 10 ? 1 : 0)} {row.unit}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right font-semibold">{fmt(source.share)}%</div>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                              <div
+                                className="h-full rounded-full bg-emerald-500"
+                                style={{ width: `${Math.min(Math.max(source.share, 2), 100)}%` }}
+                              />
                             </div>
                           </div>
                         ))
