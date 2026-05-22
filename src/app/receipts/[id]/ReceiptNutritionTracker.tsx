@@ -791,26 +791,27 @@ export function ReceiptNutritionTracker({
 
     return (
       <div className="h-[72vh] overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <table className="w-full text-sm">
+        <table className="w-full text-xs leading-tight">
           <thead className="sticky top-0 z-10 bg-zinc-50 text-left text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             <tr>
-              <th className="w-10 px-4 py-3 font-medium">
+              <th className="w-8 px-2 py-2 font-medium">
                 <input
                   type="checkbox"
                   aria-label="Select visible items"
                   checked={allVisibleSelected}
                   onChange={(e) => (e.target.checked ? selectAllVisible() : clearSelection())}
+                  className="h-3.5 w-3.5"
                 />
               </th>
-              <th className="px-4 py-3 font-medium">Item</th>
-              <th className="px-4 py-3 font-medium">Tag</th>
-              <th className="px-4 py-3 font-medium">Amount</th>
-              <th className="px-4 py-3 text-right font-medium">Price</th>
-              <th className="px-4 py-3 text-right font-medium">Calories</th>
-              <th className="px-4 py-3 font-medium">Macros</th>
-              <th className="px-4 py-3 font-medium">Sugar & fiber</th>
-              <th className="px-4 py-3 font-medium">Electrolytes</th>
-              <th className="px-4 py-3 font-medium">Source</th>
+              <th className="px-2 py-2 font-medium">Item</th>
+              <th className="px-2 py-2 font-medium">Tag</th>
+              <th className="px-2 py-2 font-medium">Amount</th>
+              <th className="px-2 py-2 text-right font-medium">Price</th>
+              <th className="px-2 py-2 text-right font-medium">Calories</th>
+              <th className="px-2 py-2 font-medium">Macros</th>
+              <th className="px-2 py-2 font-medium">Sugar & fiber</th>
+              <th className="px-2 py-2 font-medium">Electrolytes</th>
+              <th className="px-2 py-2 font-medium">Source</th>
             </tr>
           </thead>
           <tbody>
@@ -834,33 +835,34 @@ export function ReceiptNutritionTracker({
                     selected ? "outline outline-2 outline-zinc-900 dark:outline-zinc-100" : ""
                   }`}
                 >
-                  <td className="px-4 py-3 align-top">
+                  <td className="px-2 py-1.5 align-top">
                     <input
                       type="checkbox"
                       aria-label={`Select ${item.rawName}`}
                       checked={selected}
                       onChange={() => toggleSelected(item.id)}
+                      className="h-3.5 w-3.5"
                     />
                   </td>
-                  <td className="px-4 py-3 align-top font-medium">
-                    <div className="flex min-w-72 items-start gap-3">
+                  <td className="px-2 py-1.5 align-top font-medium">
+                    <div className="flex min-w-56 items-start gap-2">
                       {item.productImageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={item.productImageUrl}
                           alt=""
-                          className="h-14 w-14 rounded-md border border-zinc-200 bg-zinc-50 object-cover dark:border-zinc-800 dark:bg-zinc-950"
+                          className="h-9 w-9 rounded border border-zinc-200 bg-zinc-50 object-cover dark:border-zinc-800 dark:bg-zinc-950"
                           loading="lazy"
                         />
                       ) : (
-                        <div className="h-14 w-14 rounded-md border border-dashed border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" />
+                        <div className="h-9 w-9 rounded border border-dashed border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" />
                       )}
-                      <div>
-                        <div>{item.rawName}</div>
+                      <div className="min-w-0">
+                        <div className="max-w-64 truncate">{item.rawName}</div>
                         {item.normalizedName ? (
-                          <div className="mt-1 text-xs text-zinc-500">{item.normalizedName}</div>
+                          <div className="mt-0.5 max-w-64 truncate text-[11px] text-zinc-500">{item.normalizedName}</div>
                         ) : null}
-                        <div className="mt-1 text-xs text-zinc-500">
+                        <div className="mt-0.5 max-w-64 truncate text-[11px] text-zinc-500">
                           {item.productUrl ? (
                             <a
                               href={item.productUrl}
@@ -878,12 +880,12 @@ export function ReceiptNutritionTracker({
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top">
+                  <td className="px-2 py-1.5 align-top">
                     <select
                       value={item.consumptionStatus}
                       disabled={saving}
                       onChange={(e) => setStatus([item.id], e.target.value as ConsumptionStatus, item.statusDate ?? statusDate)}
-                      className="w-32 rounded-md border border-zinc-200 bg-transparent px-2 py-1 text-xs dark:border-zinc-800"
+                      className="w-28 rounded border border-zinc-200 bg-transparent px-1.5 py-0.5 text-[11px] dark:border-zinc-800"
                     >
                       {STATUS_OPTIONS.map((status) => (
                         <option key={status} value={status}>
@@ -896,59 +898,59 @@ export function ReceiptNutritionTracker({
                         type="date"
                         value={item.statusDate ?? statusDate}
                         onChange={(e) => setStatus([item.id], item.consumptionStatus, e.target.value)}
-                        className="mt-2 w-32 rounded-md border border-zinc-200 bg-transparent px-2 py-1 text-xs dark:border-zinc-800"
+                        className="mt-1 w-28 rounded border border-zinc-200 bg-transparent px-1.5 py-0.5 text-[11px] dark:border-zinc-800"
                       />
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400">
+                  <td className="px-2 py-1.5 align-top text-[11px] text-zinc-600 dark:text-zinc-400">
                     <div>{formatNormalizedAmount(item.rawName, item.unit, item.nutrition?.totalGrams)}</div>
-                    <div className="mt-1 text-zinc-500">
+                    <div className="mt-0.5 text-zinc-500">
                       {formatNumber(item.quantity, 2)} {item.unit}
                     </div>
                     {serving?.estimatedServings ? (
-                      <div className="mt-1 text-zinc-500">
+                      <div className="mt-0.5 text-zinc-500">
                         {formatNumber(serving.estimatedServings, 1)} servings
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-right align-top">{formatMoney(item.price)}</td>
-                  <td className="px-4 py-3 text-right align-top">
+                  <td className="px-2 py-1.5 text-right align-top">{formatMoney(item.price)}</td>
+                  <td className="px-2 py-1.5 text-right align-top">
                     {formatNumber(values.calories)}
                     {values.per100gOnly && values.calories != null ? (
-                      <span className="text-xs text-zinc-500"> /100g</span>
+                      <span className="text-[11px] text-zinc-500"> /100g</span>
                     ) : null}
-                    <div className="mt-1 text-xs text-zinc-500">
+                    <div className="mt-0.5 text-[11px] text-zinc-500">
                       {percentDv(values.calories, DAILY_VALUES.calories)}
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400">
+                  <td className="px-2 py-1.5 align-top text-[11px] text-zinc-600 dark:text-zinc-400">
                     P {formatNumber(values.proteinG, 1)}g ({percentDv(values.proteinG, DAILY_VALUES.proteinG)})
-                    <div className="mt-1">
+                    <div className="mt-0.5">
                       C {formatNumber(values.carbsG, 1)}g ({percentDv(values.carbsG, DAILY_VALUES.carbsG)})
                     </div>
-                    <div className="mt-1">
+                    <div className="mt-0.5">
                       F {formatNumber(values.fatG, 1)}g ({percentDv(values.fatG, DAILY_VALUES.fatG)})
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400">
+                  <td className="px-2 py-1.5 align-top text-[11px] text-zinc-600 dark:text-zinc-400">
                     Sugar {formatNumber(values.sugarG, 1)}g
-                    <div className="mt-1 text-zinc-500">
+                    <div className="mt-0.5 text-zinc-500">
                       Fiber {formatNumber(values.fiberG, 1)}g ({percentDv(values.fiberG, DAILY_VALUES.fiberG)})
                     </div>
-                    <div className="mt-1 text-zinc-500">Total sugar has no FDA %DV</div>
+                    <div className="mt-0.5 text-zinc-500">No sugar %DV</div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400">
+                  <td className="px-2 py-1.5 align-top text-[11px] text-zinc-600 dark:text-zinc-400">
                     Na {formatMg(values.sodiumMg)} ({percentDv(values.sodiumMg, DAILY_VALUES.sodiumMg)})
-                    <div className="mt-1 text-zinc-500">
+                    <div className="mt-0.5 text-zinc-500">
                       Salt {formatNumber(sodiumToSaltG(values.sodiumMg), 2)}g · K {formatMg(values.potassiumMg)} (
                       {percentDv(values.potassiumMg, DAILY_VALUES.potassiumMg)})
                     </div>
-                    <div className="mt-1 text-zinc-500">
+                    <div className="mt-0.5 text-zinc-500">
                       Mg {formatMg(values.magnesiumMg)} ({percentDv(values.magnesiumMg, DAILY_VALUES.magnesiumMg)}) ·
                       Ca {formatMg(values.calciumMg)} ({percentDv(values.calciumMg, DAILY_VALUES.calciumMg)})
                     </div>
                   </td>
-                  <td className="px-4 py-3 align-top text-xs">
+                  <td className="px-2 py-1.5 align-top text-[11px]">
                     <span
                       className={
                         item.nutritionStatus === "matched"
@@ -960,28 +962,28 @@ export function ReceiptNutritionTracker({
                     >
                       {item.nutritionStatus}
                     </span>
-                    {values.meta?.dataType ? <div className="mt-1 text-zinc-500">{values.meta.dataType}</div> : null}
+                    {values.meta?.dataType ? <div className="mt-0.5 text-zinc-500">{values.meta.dataType}</div> : null}
                   </td>
                 </tr>
               );
             })}
           </tbody>
-          <tfoot className="sticky bottom-0 z-10 bg-zinc-50 text-sm shadow-[0_-1px_0_rgba(0,0,0,0.08)] dark:bg-zinc-800">
+          <tfoot className="sticky bottom-0 z-10 bg-zinc-50 text-xs shadow-[0_-1px_0_rgba(0,0,0,0.08)] dark:bg-zinc-800">
             <tr>
-              <td className="px-4 py-3"></td>
-              <td className="px-4 py-3 font-medium">All visible total</td>
-              <td className="px-4 py-3 text-xs">{tableItems.length} rows</td>
-              <td className="px-4 py-3 text-xs">{tableTotals.knownItems} nutrition totals</td>
-              <td className="px-4 py-3 text-right font-medium">{formatMoney(tableTotals.price)}</td>
-              <td className="px-4 py-3 text-right font-medium">{formatNumber(tableTotals.calories)}</td>
-              <td className="px-4 py-3 text-xs">
+              <td className="px-2 py-2"></td>
+              <td className="px-2 py-2 font-medium">All visible total</td>
+              <td className="px-2 py-2">{tableItems.length} rows</td>
+              <td className="px-2 py-2">{tableTotals.knownItems} nutrition totals</td>
+              <td className="px-2 py-2 text-right font-medium">{formatMoney(tableTotals.price)}</td>
+              <td className="px-2 py-2 text-right font-medium">{formatNumber(tableTotals.calories)}</td>
+              <td className="px-2 py-2">
                 P {formatNumber(tableTotals.proteinG)}g · C {formatNumber(tableTotals.carbsG)}g · F{" "}
                 {formatNumber(tableTotals.fatG)}g
               </td>
-              <td className="px-4 py-3 text-xs">
+              <td className="px-2 py-2">
                 Sugar {formatNumber(tableTotals.sugarG)}g · Fiber {formatNumber(tableTotals.fiberG)}g
               </td>
-              <td className="px-4 py-3 text-xs">
+              <td className="px-2 py-2">
                 Salt {formatNumber(sodiumToSaltG(tableTotals.sodiumMg), 1)}g · K{" "}
                 {formatMg(tableTotals.potassiumMg)}
               </td>
