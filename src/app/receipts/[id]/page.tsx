@@ -116,6 +116,12 @@ export default async function ReceiptDetailPage({
           </p>
         </div>
         <div className="flex flex-col gap-2">
+          <Link
+            href={`/receipts/${receiptId}/read`}
+            className="rounded-md border border-zinc-200 px-3 py-2 text-center text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+          >
+            Read nutrition
+          </Link>
           <EnrichNutritionButton receiptId={receiptId} />
           <EnrichProductsButton receiptId={receiptId} />
         </div>

@@ -119,7 +119,7 @@ export const consumptionLogs = pgTable(
 
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
-  people: integer("people").notNull().default(4),
+  people: integer("people").notNull().default(2),
   days: integer("days").notNull().default(7),
   emailEnabled: boolean("email_enabled").notNull().default(false),
   emailHost: text("email_host").default("imap.gmail.com"),

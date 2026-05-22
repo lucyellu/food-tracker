@@ -559,7 +559,7 @@ export function ReceiptNutritionTracker({
   const [items, setItems] = useState(initialItems);
   const [logs, setLogs] = useState(initialLogs);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [people, setPeople] = useState(4);
+  const [people, setPeople] = useState(2);
   const [days, setDays] = useState(7);
   const [view, setView] = useState<ViewMode>("table");
   const [selectedRate, setSelectedRate] = useState<RateMode>("total");
