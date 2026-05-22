@@ -144,18 +144,20 @@ const STATUS_META: Record<ConsumptionStatus, { label: string; className: string 
 };
 
 const DAILY_VALUES = {
-  calories: 2000,
-  fatG: 78,
-  carbsG: 275,
-  fiberG: 28,
-  proteinG: 50,
+  calories: 1433,
+  fatG: 47.8,
+  carbsG: 161.2,
+  fiberG: 25,
+  proteinG: 46,
   addedSugarG: 50,
   sodiumMg: 2300,
-  potassiumMg: 4700,
-  calciumMg: 1300,
+  potassiumMg: 2600,
+  calciumMg: 1000,
   ironMg: 18,
-  magnesiumMg: 420,
+  magnesiumMg: 320,
 };
+
+const DAILY_VALUE_BASIS = "Personal target: 110 lb, 165 cm, female, age 35";
 
 const LOG_UNITS: LogUnit[] = ["item", "serving", "g", "100g"];
 
@@ -240,7 +242,7 @@ function formatNormalizedAmount(rawName: string, unit: string, grams: number | n
 
 function percentDv(value: number | null | undefined, dailyValue: number) {
   if (value == null || !Number.isFinite(value)) return "-";
-  return `${formatNumber((value / dailyValue) * 100)}% DV`;
+  return `${formatNumber((value / dailyValue) * 100)}% target`;
 }
 
 function addDaysToIso(iso: string, days: number) {
@@ -571,7 +573,7 @@ function SummaryCard({ label, value, sub }: { label: string; value: string; sub?
     <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="text-xs text-zinc-500">{label}</div>
       <div className="mt-1 text-xl font-semibold">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub}</div> : null}
+      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub} personal</div> : null}
     </div>
   );
 }
@@ -1009,7 +1011,7 @@ export function ReceiptNutritionTracker({
                     <div className="mt-0.5 text-zinc-500">
                       Fiber {formatNumber(values.fiberG, 1)}g ({percentDv(values.fiberG, DAILY_VALUES.fiberG)})
                     </div>
-                    <div className="mt-0.5 text-zinc-500">No sugar %DV</div>
+                    <div className="mt-0.5 text-zinc-500">No sugar % target</div>
                   </td>
                   <td className="px-2 py-1.5 align-top text-[11px] text-zinc-600 dark:text-zinc-400">
                     Na {formatMg(values.sodiumMg)} ({percentDv(values.sodiumMg, DAILY_VALUES.sodiumMg)})
@@ -1244,6 +1246,7 @@ export function ReceiptNutritionTracker({
             <div className="mt-2 text-xs text-zinc-500">
               {startDate} to {planEnd}. Excludes disposed, unavailable, and refunded rows.
             </div>
+            <div className="mt-1 text-xs text-zinc-500">{DAILY_VALUE_BASIS}</div>
           </div>
 
           <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
@@ -1579,7 +1582,7 @@ export function ReceiptNutritionTracker({
             <SummaryCard
               label="Sugar"
               value={`${formatNumber(selectedScaledTotals.sugarG)}g`}
-              sub="Total sugar has no FDA %DV"
+              sub="Total sugar has no personal target"
             />
             <SummaryCard
               label="Salt"
