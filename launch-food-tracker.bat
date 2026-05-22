@@ -3,6 +3,7 @@ setlocal
 
 set PORT=3000
 set DIR=%~dp0
+set APP_URL=http://localhost:%PORT%/receipts/1
 
 netstat -ano | findstr ":%PORT% " | findstr "LISTENING" >nul 2>&1
 if %errorlevel% == 0 (
@@ -23,9 +24,9 @@ for %%P in (
 )
 
 if defined CHROME (
-    start "" %CHROME% --app="http://localhost:%PORT%/"
+    start "" %CHROME% --app="%APP_URL%"
 ) else (
-    start "" "http://localhost:%PORT%/"
+    start "" "%APP_URL%"
 )
 
 endlocal
