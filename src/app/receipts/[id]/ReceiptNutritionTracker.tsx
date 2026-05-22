@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   type CSSProperties,
+  type ReactNode,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
   type KeyboardEvent,
@@ -23,6 +24,7 @@ type RateMode = "total" | "day" | "person" | "personDay" | "serving" | "hundredG
 type CalendarMode = "month" | "week" | "day";
 type LogUnit = "item" | "serving" | "g" | "100g";
 type ResizableLane = "receipt" | "details";
+type TargetSignalMode = "goal" | "limit" | "energy";
 
 const RECEIPT_LANE_MIN = 210;
 const RECEIPT_LANE_MAX = 340;
@@ -243,6 +245,57 @@ function formatNormalizedAmount(rawName: string, unit: string, grams: number | n
 function percentDv(value: number | null | undefined, dailyValue: number) {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${formatNumber((value / dailyValue) * 100)}% target`;
+}
+
+function getTargetSignal(value: number | null | undefined, dailyValue: number, mode: TargetSignalMode = "goal") {
+  if (value == null || !Number.isFinite(value) || !Number.isFinite(dailyValue) || dailyValue <= 0) {
+    return {
+      marker: "-",
+      text: "no target",
+      className: "text-zinc-500 dark:text-zinc-400",
+    };
+  }
+
+  const percent = (value / dailyValue) * 100;
+  const text = `${formatNumber(percent)}% target`;
+
+  if (mode === "limit") {
+    if (percent <= 100) return { marker: "→", text, className: "text-emerald-600 dark:text-emerald-400" };
+    if (percent <= 125) return { marker: "↑", text, className: "text-amber-600 dark:text-amber-400" };
+    return { marker: "↑↑", text, className: "text-orange-700 dark:text-orange-300" };
+  }
+
+  if (mode === "energy") {
+    if (percent < 85) return { marker: "↓", text, className: "text-rose-600 dark:text-rose-400" };
+    if (percent <= 115) return { marker: "→", text, className: "text-emerald-600 dark:text-emerald-400" };
+    if (percent <= 135) return { marker: "↑", text, className: "text-amber-600 dark:text-amber-400" };
+    return { marker: "↑↑", text, className: "text-orange-700 dark:text-orange-300" };
+  }
+
+  if (percent < 50) return { marker: "↓↓", text, className: "text-red-600 dark:text-red-400" };
+  if (percent < 85) return { marker: "↓", text, className: "text-rose-600 dark:text-rose-400" };
+  if (percent <= 125) return { marker: "→", text, className: "text-emerald-600 dark:text-emerald-400" };
+  return { marker: "↑", text, className: "text-amber-600 dark:text-amber-400" };
+}
+
+function TargetSignal({
+  value,
+  dailyValue,
+  mode = "goal",
+}: {
+  value: number | null | undefined;
+  dailyValue: number;
+  mode?: TargetSignalMode;
+}) {
+  const signal = getTargetSignal(value, dailyValue, mode);
+  return (
+    <span className={`inline-flex min-w-0 items-center gap-1 font-medium ${signal.className}`}>
+      <span className="w-4 shrink-0 text-center font-semibold" aria-hidden="true">
+        {signal.marker}
+      </span>
+      <span className="truncate">{signal.text}</span>
+    </span>
+  );
 }
 
 function addDaysToIso(iso: string, days: number) {
@@ -568,12 +621,12 @@ function rateLabel(mode: RateMode) {
   return labels[mode];
 }
 
-function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: ReactNode }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="text-xs text-zinc-500">{label}</div>
       <div className="mt-1 text-xl font-semibold">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-zinc-500">{sub} personal</div> : null}
+      {sub ? <div className="mt-1 min-w-0 text-xs text-zinc-500">{sub}</div> : null}
     </div>
   );
 }
@@ -584,15 +637,23 @@ function NutrientCard({
   unit,
   dv,
   digits = 0,
+  signalMode = "goal",
 }: {
   label: string;
   value: number | null | undefined;
   unit: string;
   dv?: number;
   digits?: number;
+  signalMode?: TargetSignalMode;
 }) {
   const display = value == null ? "-" : `${formatNumber(value, digits)}${unit}`;
-  return <SummaryCard label={label} value={display} sub={dv ? percentDv(value, dv) : undefined} />;
+  return (
+    <SummaryCard
+      label={label}
+      value={display}
+      sub={dv ? <TargetSignal value={value} dailyValue={dv} mode={signalMode} /> : undefined}
+    />
+  );
 }
 
 function isTrackedForPlan(item: ReceiptTrackerItem) {
@@ -1083,6 +1144,7 @@ export function ReceiptNutritionTracker({
           value={dailyPersonTotals.calories}
           unit=""
           dv={DAILY_VALUES.calories}
+          signalMode="energy"
         />
         <NutrientCard
           label="Daily protein / person"
@@ -1101,12 +1163,14 @@ export function ReceiptNutritionTracker({
           value={dailyPersonTotals.fatG}
           unit="g"
           dv={DAILY_VALUES.fatG}
+          signalMode="limit"
         />
         <NutrientCard
           label="Daily sodium / person"
           value={dailyPersonTotals.sodiumMg}
           unit="mg"
           dv={DAILY_VALUES.sodiumMg}
+          signalMode="limit"
         />
         <NutrientCard
           label="Daily potassium / person"
@@ -1114,6 +1178,11 @@ export function ReceiptNutritionTracker({
           unit="mg"
           dv={DAILY_VALUES.potassiumMg}
         />
+      </div>
+      <div className="mt-2 text-xs text-zinc-500">
+        Signals: <span className="font-medium text-red-600 dark:text-red-400">↓↓ low</span>,{" "}
+        <span className="font-medium text-emerald-600 dark:text-emerald-400">→ target</span>,{" "}
+        <span className="font-medium text-amber-600 dark:text-amber-400">↑ high</span>.
       </div>
 
       <div
@@ -1568,6 +1637,7 @@ export function ReceiptNutritionTracker({
               value={selectedScaledTotals.calories}
               unit=""
               dv={DAILY_VALUES.calories}
+              signalMode="energy"
             />
             <SummaryCard label="Price" value={formatMoney(selectedScaledTotals.price)} />
             <NutrientCard
@@ -1577,7 +1647,13 @@ export function ReceiptNutritionTracker({
               dv={DAILY_VALUES.proteinG}
             />
             <NutrientCard label="Carbs" value={selectedScaledTotals.carbsG} unit="g" dv={DAILY_VALUES.carbsG} />
-            <NutrientCard label="Fat" value={selectedScaledTotals.fatG} unit="g" dv={DAILY_VALUES.fatG} />
+            <NutrientCard
+              label="Fat"
+              value={selectedScaledTotals.fatG}
+              unit="g"
+              dv={DAILY_VALUES.fatG}
+              signalMode="limit"
+            />
             <NutrientCard label="Fiber" value={selectedScaledTotals.fiberG} unit="g" dv={DAILY_VALUES.fiberG} />
             <SummaryCard
               label="Sugar"
@@ -1587,7 +1663,7 @@ export function ReceiptNutritionTracker({
             <SummaryCard
               label="Salt"
               value={`${formatNumber(sodiumToSaltG(selectedScaledTotals.sodiumMg), 1)}g`}
-              sub={percentDv(selectedScaledTotals.sodiumMg, DAILY_VALUES.sodiumMg)}
+              sub={<TargetSignal value={selectedScaledTotals.sodiumMg} dailyValue={DAILY_VALUES.sodiumMg} mode="limit" />}
             />
             <NutrientCard
               label="Potassium"
