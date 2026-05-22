@@ -115,10 +115,28 @@ for (const r of rows) {
     skipped++;
     continue;
   }
-  const rawName = r.status === "refunded" ? `[REFUNDED] ${r.raw_name}` : r.raw_name;
+  const isRefunded = r.status === "refunded";
   await sql`
-    INSERT INTO line_items (receipt_id, raw_name, quantity, unit, price, retailer_sku, product_source)
-    VALUES (${receiptId}, ${rawName}, ${qty}, ${r.unit ?? "count"}, ${price}, ${r.sku || null}, 'T&T')
+    INSERT INTO line_items (
+      receipt_id,
+      raw_name,
+      quantity,
+      unit,
+      price,
+      retailer_sku,
+      product_source,
+      consumption_status
+    )
+    VALUES (
+      ${receiptId},
+      ${r.raw_name},
+      ${qty},
+      ${r.unit ?? "count"},
+      ${price},
+      ${r.sku || null},
+      'T&T',
+      ${isRefunded ? "refunded" : "available"}
+    )
   `;
   inserted++;
 }

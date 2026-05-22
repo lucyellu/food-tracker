@@ -44,6 +44,20 @@ function formatDate(iso: string | null) {
   }
 }
 
+function addDaysToIso(iso: string | null, days: number) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const date = new Date(`${iso}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatPlanRange(iso: string | null, days: number) {
+  if (!iso) return "—";
+  const start = formatDate(iso);
+  const end = addDaysToIso(iso, days);
+  return end ? `${start} to ${end}` : start;
+}
+
 export default async function ReceiptDetailPage({
   params,
 }: {
@@ -58,7 +72,11 @@ export default async function ReceiptDetailPage({
   const { receipt, items } = data;
   const trackerItems = items.map((item) => ({
     ...item,
-    consumptionStatus: item.consumptionStatus ?? "available",
+    rawName: item.rawName.replace(/^\[REFUNDED\]\s*/i, ""),
+    consumptionStatus:
+      item.rawName.startsWith("[REFUNDED]") && item.consumptionStatus === "available"
+        ? "refunded"
+        : (item.consumptionStatus ?? "available"),
   })) satisfies ReceiptTrackerItem[];
 
   return (
@@ -70,7 +88,8 @@ export default async function ReceiptDetailPage({
           </Link>
           <h1 className="text-2xl font-semibold mt-2">{receipt.vendor ?? "Unknown vendor"}</h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {formatDate(receipt.purchasedAt)} · {items.length} items · {formatMoney(receipt.total)}
+            {formatPlanRange(receipt.purchasedAt, 7)} · {items.length} receipt rows ·{" "}
+            {formatMoney(receipt.total)}
           </p>
         </div>
         <div className="flex flex-col gap-2">
@@ -79,7 +98,11 @@ export default async function ReceiptDetailPage({
         </div>
       </div>
 
-      <ReceiptNutritionTracker receiptId={receiptId} initialItems={trackerItems} />
+      <ReceiptNutritionTracker
+        receiptId={receiptId}
+        initialItems={trackerItems}
+        purchasedAt={receipt.purchasedAt}
+      />
 
       <div className="text-xs text-zinc-500">
         Nutrition comes from USDA FoodData Central. Item totals are estimated only when the receipt

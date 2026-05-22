@@ -56,10 +56,11 @@ export const lineItems = pgTable(
     productUrl: text("product_url"),
     productImageUrl: text("product_image_url"),
     consumptionStatus: text("consumption_status", {
-      enum: ["available", "consumed", "disposed"],
+      enum: ["available", "pantry", "fridge", "consumed", "disposed", "unavailable", "refunded"],
     })
       .notNull()
       .default("available"),
+    statusDate: text("status_date"),
     fdcId: integer("fdc_id"),
     nutritionStatus: text("nutrition_status", {
       enum: ["pending", "matched", "unmatched", "manual"],

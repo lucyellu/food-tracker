@@ -4,7 +4,15 @@ import { db, schema } from "@/db/client";
 
 export const runtime = "nodejs";
 
-const STATUS = new Set(["available", "consumed", "disposed"]);
+const STATUS = new Set([
+  "available",
+  "pantry",
+  "fridge",
+  "consumed",
+  "disposed",
+  "unavailable",
+  "refunded",
+]);
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -13,7 +21,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return NextResponse.json({ error: "Invalid receipt id" }, { status: 400 });
   }
 
-  const body = (await req.json()) as { itemIds?: number[]; status?: string };
+  const body = (await req.json()) as { itemIds?: number[]; status?: string; statusDate?: string | null };
   const itemIds = Array.isArray(body.itemIds)
     ? body.itemIds.filter((itemId) => Number.isFinite(itemId))
     : [];
@@ -23,11 +31,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!body.status || !STATUS.has(body.status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
+  const statusDate =
+    typeof body.statusDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.statusDate)
+      ? body.statusDate
+      : null;
 
   const rows = await db
     .update(schema.lineItems)
     .set({
       consumptionStatus: body.status as typeof schema.lineItems.$inferInsert.consumptionStatus,
+      statusDate,
     })
     .where(
       and(
