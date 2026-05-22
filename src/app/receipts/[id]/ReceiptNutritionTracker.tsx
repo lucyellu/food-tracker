@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { type CSSProperties, type MouseEvent, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent,
+  useMemo,
+  useState,
+} from "react";
 
 type ConsumptionStatus =
   | "available"
@@ -15,6 +22,13 @@ type ViewMode = "table" | "pantry" | "consumed" | "calendar";
 type RateMode = "total" | "day" | "person" | "personDay" | "serving" | "hundredG";
 type CalendarMode = "month" | "week" | "day";
 type LogUnit = "item" | "serving" | "g" | "100g";
+type ResizableLane = "receipt" | "details";
+
+const RECEIPT_LANE_MIN = 210;
+const RECEIPT_LANE_MAX = 340;
+const DETAILS_LANE_MIN = 320;
+const DETAILS_LANE_MAX = 520;
+const LANE_NUDGE_PX = 16;
 
 type NutritionMeta = {
   basis?: string;
@@ -163,6 +177,10 @@ function formatDate(iso: string | null | undefined) {
 function formatNumber(n: number | null | undefined, digits = 0) {
   if (n == null || !Number.isFinite(n)) return "-";
   return n.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function parseMeta(meta: string | null | undefined): NutritionMeta | null {
@@ -701,6 +719,67 @@ export function ReceiptNutritionTracker({
     setSelectedIds(new Set());
   }
 
+  function resizeLane(lane: ResizableLane, nextWidth: number) {
+    if (lane === "receipt") {
+      setOutlineCollapsed(false);
+      setOutlineWidth(clampNumber(nextWidth, RECEIPT_LANE_MIN, RECEIPT_LANE_MAX));
+      return;
+    }
+
+    setDetailsCollapsed(false);
+    setDetailsWidth(clampNumber(nextWidth, DETAILS_LANE_MIN, DETAILS_LANE_MAX));
+  }
+
+  function startLaneResize(event: ReactPointerEvent<HTMLDivElement>, lane: ResizableLane) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth =
+      lane === "receipt"
+        ? outlineCollapsed
+          ? RECEIPT_LANE_MIN
+          : outlineWidth
+        : detailsCollapsed
+          ? DETAILS_LANE_MIN
+          : detailsWidth;
+
+    if (lane === "receipt") setOutlineCollapsed(false);
+    else setDetailsCollapsed(false);
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const delta = lane === "receipt" ? moveEvent.clientX - startX : startX - moveEvent.clientX;
+      resizeLane(lane, startWidth + delta);
+    };
+
+    const stopResize = () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+  }
+
+  function nudgeLane(event: KeyboardEvent<HTMLDivElement>, lane: ResizableLane) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    if (lane === "receipt") {
+      resizeLane("receipt", outlineWidth + direction * LANE_NUDGE_PX);
+      return;
+    }
+
+    resizeLane("details", detailsWidth - direction * LANE_NUDGE_PX);
+  }
+
   function rowClickSelect(event: MouseEvent<HTMLTableRowElement>, id: number) {
     const target = event.target as HTMLElement;
     if (target.closest("a,button,input,select,textarea,label")) return;
@@ -962,7 +1041,7 @@ export function ReceiptNutritionTracker({
       </div>
 
       <div
-        className="grid items-start gap-4 xl:grid-cols-[var(--receipt-lane)_minmax(0,1fr)_var(--details-lane)]"
+        className="grid items-start gap-y-4 xl:grid-cols-[var(--receipt-lane)_16px_minmax(0,1fr)_16px_var(--details-lane)] xl:gap-y-0"
         style={laneStyle}
       >
         <aside
@@ -1094,34 +1173,6 @@ export function ReceiptNutritionTracker({
           </div>
 
           <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
-            <div className="text-xs font-medium text-zinc-500">Lane widths</div>
-            <label className="mt-2 block text-xs">
-              <span className="mb-1 block text-zinc-500">Receipts {outlineWidth}px</span>
-              <input
-                type="range"
-                min={210}
-                max={340}
-                value={outlineWidth}
-                onInput={(e) => setOutlineWidth(Number(e.currentTarget.value))}
-                onChange={(e) => setOutlineWidth(Number(e.target.value))}
-                className="w-full accent-zinc-900 dark:accent-zinc-100"
-              />
-            </label>
-            <label className="mt-2 block text-xs">
-              <span className="mb-1 block text-zinc-500">Details {detailsWidth}px</span>
-              <input
-                type="range"
-                min={320}
-                max={520}
-                value={detailsWidth}
-                onInput={(e) => setDetailsWidth(Number(e.currentTarget.value))}
-                onChange={(e) => setDetailsWidth(Number(e.target.value))}
-                className="w-full accent-zinc-900 dark:accent-zinc-100"
-              />
-            </label>
-          </div>
-
-          <div className="border-t border-zinc-200 pt-4 dark:border-zinc-800">
             <div className="text-xs font-medium text-zinc-500">Receipt state</div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
               {STATUS_OPTIONS.map((status) => (
@@ -1137,6 +1188,21 @@ export function ReceiptNutritionTracker({
             </>
           )}
         </aside>
+
+        <div
+          role="separator"
+          aria-label="Resize receipts lane"
+          aria-orientation="vertical"
+          aria-valuemin={RECEIPT_LANE_MIN}
+          aria-valuemax={RECEIPT_LANE_MAX}
+          aria-valuenow={outlineCollapsed ? 52 : outlineWidth}
+          tabIndex={0}
+          onPointerDown={(event) => startLaneResize(event, "receipt")}
+          onKeyDown={(event) => nudgeLane(event, "receipt")}
+          className="group hidden h-[72vh] cursor-col-resize touch-none items-stretch justify-center outline-none xl:sticky xl:top-4 xl:flex"
+        >
+          <span className="my-2 w-px rounded-full bg-zinc-200 transition-colors group-hover:bg-zinc-500 group-focus-visible:bg-zinc-900 dark:bg-zinc-800 dark:group-hover:bg-zinc-500 dark:group-focus-visible:bg-zinc-100" />
+        </div>
 
         {view === "calendar" ? (
           <div className="h-[72vh] space-y-3 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-950/50">
@@ -1232,6 +1298,21 @@ export function ReceiptNutritionTracker({
         ) : (
           renderItemsTable(visibleItems)
         )}
+
+        <div
+          role="separator"
+          aria-label="Resize details lane"
+          aria-orientation="vertical"
+          aria-valuemin={DETAILS_LANE_MIN}
+          aria-valuemax={DETAILS_LANE_MAX}
+          aria-valuenow={detailsCollapsed ? 52 : detailsWidth}
+          tabIndex={0}
+          onPointerDown={(event) => startLaneResize(event, "details")}
+          onKeyDown={(event) => nudgeLane(event, "details")}
+          className="group hidden h-[72vh] cursor-col-resize touch-none items-stretch justify-center outline-none xl:sticky xl:top-4 xl:flex"
+        >
+          <span className="my-2 w-px rounded-full bg-zinc-200 transition-colors group-hover:bg-zinc-500 group-focus-visible:bg-zinc-900 dark:bg-zinc-800 dark:group-hover:bg-zinc-500 dark:group-focus-visible:bg-zinc-100" />
+        </div>
 
         <aside
           className={`rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4 ${
