@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type MouseEvent, useMemo, useState } from "react";
 
 type ConsumptionStatus =
   | "available"
@@ -12,6 +12,8 @@ type ConsumptionStatus =
   | "refunded";
 type ViewMode = "table" | "pantry" | "consumed" | "calendar";
 type RateMode = "total" | "day" | "person" | "personDay" | "serving" | "hundredG";
+type CalendarMode = "month" | "week" | "day";
+type LogUnit = "item" | "serving" | "g" | "100g";
 
 type NutritionMeta = {
   basis?: string;
@@ -64,6 +66,16 @@ export type ReceiptTrackerItem = {
   consumptionStatus: ConsumptionStatus;
   statusDate: string | null;
   nutrition: Nutrition | null;
+};
+
+export type ReceiptConsumptionLog = {
+  id: number;
+  receiptId: number;
+  lineItemId: number;
+  consumedAt: string;
+  amount: number;
+  unit: LogUnit;
+  note: string | null;
 };
 
 type Totals = {
@@ -121,6 +133,8 @@ const DAILY_VALUES = {
   ironMg: 18,
   magnesiumMg: 420,
 };
+
+const LOG_UNITS: LogUnit[] = ["item", "serving", "g", "100g"];
 
 function formatMoney(n: number | null | undefined) {
   if (n == null) return "-";
@@ -202,6 +216,66 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function nowForDateTimeInput() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+}
+
+function datePart(value: string) {
+  return value.slice(0, 10);
+}
+
+function monthStartIso(iso: string) {
+  return `${iso.slice(0, 7)}-01`;
+}
+
+function daysInMonth(iso: string) {
+  const year = Number(iso.slice(0, 4));
+  const month = Number(iso.slice(5, 7));
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function calendarRange(cursor: string, mode: CalendarMode) {
+  if (mode === "day") return [cursor];
+  if (mode === "week") return Array.from({ length: 7 }, (_, index) => addDaysToIso(cursor, index));
+
+  const monthStart = monthStartIso(cursor);
+  const leadingDays = new Date(`${monthStart}T00:00:00.000Z`).getUTCDay();
+  const totalDays = Math.ceil((leadingDays + daysInMonth(cursor)) / 7) * 7;
+  return Array.from({ length: totalDays }, (_, index) => addDaysToIso(monthStart, index - leadingDays));
+}
+
+function moveCalendarCursor(cursor: string, mode: CalendarMode, direction: -1 | 1) {
+  if (mode === "day") return addDaysToIso(cursor, direction);
+  if (mode === "week") return addDaysToIso(cursor, direction * 7);
+  const date = new Date(`${monthStartIso(cursor)}T00:00:00.000Z`);
+  date.setUTCMonth(date.getUTCMonth() + direction);
+  return date.toISOString().slice(0, 10);
+}
+
+function calendarTitle(cursor: string, mode: CalendarMode) {
+  if (mode === "month") {
+    return new Date(`${monthStartIso(cursor)}T00:00:00.000Z`).toLocaleDateString(undefined, {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  }
+  if (mode === "week") return `${cursor} to ${addDaysToIso(cursor, 6)}`;
+  return cursor;
+}
+
+function logUnitLabel(unit: LogUnit) {
+  const labels: Record<LogUnit, string> = {
+    item: "item",
+    serving: "serving",
+    g: "g",
+    "100g": "100g",
+  };
+  return labels[unit];
+}
+
 function rowValues(item: ReceiptTrackerItem) {
   const meta = parseMeta(item.nutrition?.activeIngredientsJson);
   const per100gOnly = meta?.basis === "per_100g_reference_only";
@@ -274,6 +348,81 @@ function computeTotals(items: ReceiptTrackerItem[]): Totals {
     acc.magnesiumMg += values.magnesiumMg ?? 0;
     acc.calciumMg += values.calciumMg ?? 0;
     acc.ironMg += values.ironMg ?? 0;
+    return acc;
+  }, emptyTotals());
+}
+
+function addScaledNutrients(
+  totals: Totals,
+  item: ReceiptTrackerItem,
+  factor: number,
+  grams: number | null,
+) {
+  const values = rowValues(item);
+  totals.itemCount += 1;
+  totals.price += (item.price ?? 0) * factor;
+  if (grams != null) totals.totalGrams += grams;
+  totals.knownItems += 1;
+  totals.calories += (values.calories ?? 0) * factor;
+  totals.proteinG += (values.proteinG ?? 0) * factor;
+  totals.carbsG += (values.carbsG ?? 0) * factor;
+  totals.fatG += (values.fatG ?? 0) * factor;
+  totals.sugarG += (values.sugarG ?? 0) * factor;
+  totals.fiberG += (values.fiberG ?? 0) * factor;
+  totals.sodiumMg += (values.sodiumMg ?? 0) * factor;
+  totals.potassiumMg += (values.potassiumMg ?? 0) * factor;
+  totals.magnesiumMg += (values.magnesiumMg ?? 0) * factor;
+  totals.calciumMg += (values.calciumMg ?? 0) * factor;
+  totals.ironMg += (values.ironMg ?? 0) * factor;
+}
+
+function logTotals(log: ReceiptConsumptionLog, item: ReceiptTrackerItem | undefined): Totals {
+  const totals = emptyTotals();
+  if (!item) return totals;
+
+  const values = rowValues(item);
+  const servings = values.meta?.serving?.estimatedServings ?? null;
+  if (log.unit === "g" || log.unit === "100g") {
+    const grams = log.unit === "g" ? log.amount : log.amount * 100;
+    const factor = item.nutrition?.totalGrams ? grams / item.nutrition.totalGrams : grams / 100;
+    addScaledNutrients(totals, item, factor, grams);
+    return totals;
+  }
+
+  const grams = item.nutrition?.totalGrams ?? null;
+  const factor =
+    log.unit === "serving"
+      ? servings && servings > 0
+        ? log.amount / servings
+        : null
+      : item.quantity > 0
+        ? log.amount / item.quantity
+        : log.amount;
+  if (factor == null) return totals;
+  addScaledNutrients(totals, item, factor, grams == null ? null : grams * factor);
+  totals.servings += log.unit === "serving" ? log.amount : servings ? servings * factor : 0;
+  return totals;
+}
+
+function computeLogTotals(logs: ReceiptConsumptionLog[], itemsById: Map<number, ReceiptTrackerItem>) {
+  return logs.reduce((acc, log) => {
+    const totals = logTotals(log, itemsById.get(log.lineItemId));
+    acc.price += totals.price;
+    acc.calories += totals.calories;
+    acc.proteinG += totals.proteinG;
+    acc.carbsG += totals.carbsG;
+    acc.fatG += totals.fatG;
+    acc.sugarG += totals.sugarG;
+    acc.fiberG += totals.fiberG;
+    acc.sodiumMg += totals.sodiumMg;
+    acc.potassiumMg += totals.potassiumMg;
+    acc.magnesiumMg += totals.magnesiumMg;
+    acc.calciumMg += totals.calciumMg;
+    acc.ironMg += totals.ironMg;
+    acc.totalGrams += totals.totalGrams;
+    acc.servings += totals.servings;
+    acc.knownItems += totals.knownItems;
+    acc.itemCount += 1;
     return acc;
   }, emptyTotals());
 }
@@ -359,20 +508,29 @@ function isPantryStatus(item: ReceiptTrackerItem) {
 export function ReceiptNutritionTracker({
   receiptId,
   initialItems,
+  initialLogs,
   purchasedAt,
 }: {
   receiptId: number;
   initialItems: ReceiptTrackerItem[];
+  initialLogs: ReceiptConsumptionLog[];
   purchasedAt: string | null;
 }) {
   const startDate = purchasedAt && /^\d{4}-\d{2}-\d{2}$/.test(purchasedAt) ? purchasedAt : todayIso();
   const [items, setItems] = useState(initialItems);
+  const [logs, setLogs] = useState(initialLogs);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [people, setPeople] = useState(4);
   const [days, setDays] = useState(7);
   const [view, setView] = useState<ViewMode>("table");
   const [selectedRate, setSelectedRate] = useState<RateMode>("total");
   const [statusDate, setStatusDate] = useState(startDate);
+  const [calendarMode, setCalendarMode] = useState<CalendarMode>("month");
+  const [calendarCursor, setCalendarCursor] = useState(monthStartIso(startDate));
+  const [logAmount, setLogAmount] = useState(1);
+  const [logUnit, setLogUnit] = useState<LogUnit>("item");
+  const [logAt, setLogAt] = useState(nowForDateTimeInput());
+  const [logNote, setLogNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   const planEnd = addDaysToIso(startDate, Math.max(days, 1));
@@ -381,11 +539,23 @@ export function ReceiptNutritionTracker({
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
   );
+  const selectedPrimaryItem = selectedItems[0];
+  const selectedPrimaryLogs = useMemo(
+    () =>
+      selectedPrimaryItem
+        ? logs.filter((log) => log.lineItemId === selectedPrimaryItem.id).sort((a, b) => b.consumedAt.localeCompare(a.consumedAt))
+        : [],
+    [logs, selectedPrimaryItem],
+  );
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const visibleItems = useMemo(() => {
     if (view === "pantry") return items.filter(isPantryStatus);
-    if (view === "consumed") return items.filter((item) => item.consumptionStatus === "consumed");
+    if (view === "consumed") {
+      const loggedItemIds = new Set(logs.map((log) => log.lineItemId));
+      return items.filter((item) => item.consumptionStatus === "consumed" || loggedItemIds.has(item.id));
+    }
     return items;
-  }, [items, view]);
+  }, [items, logs, view]);
   const trackedTotals = useMemo(() => computeTotals(trackedItems), [trackedItems]);
   const dailyPersonTotals = useMemo(
     () => scaleTotals(trackedTotals, Math.max(people, 1) * Math.max(days, 1)),
@@ -416,10 +586,8 @@ export function ReceiptNutritionTracker({
       ),
     [items],
   );
-  const calendarDays = useMemo(
-    () => Array.from({ length: Math.max(days, 1) }, (_, index) => addDaysToIso(startDate, index)),
-    [days, startDate],
-  );
+  const calendarDays = useMemo(() => calendarRange(calendarCursor, calendarMode), [calendarCursor, calendarMode]);
+  const consumedTotals = useMemo(() => computeLogTotals(logs, itemsById), [logs, itemsById]);
   const visibleIds = useMemo(() => visibleItems.map((item) => item.id), [visibleItems]);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const unknownNutritionRows = allTotals.itemCount - allTotals.knownItems - statusCounts.refunded;
@@ -456,12 +624,58 @@ export function ReceiptNutritionTracker({
     }
   }
 
+  async function logConsumption() {
+    if (!selectedPrimaryItem) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/consumption`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lineItemId: selectedPrimaryItem.id,
+          consumedAt: logAt,
+          amount: logAmount,
+          unit: logUnit,
+          note: logNote,
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as { log: ReceiptConsumptionLog };
+      setLogs((current) => [...current, data.log].sort((a, b) => a.consumedAt.localeCompare(b.consumedAt)));
+      setLogNote("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteLog(logId: number) {
+    setSaving(true);
+    const previous = logs;
+    setLogs((current) => current.filter((log) => log.id !== logId));
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/consumption`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ logId }),
+      });
+      if (!res.ok) setLogs(previous);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function selectAllVisible() {
     setSelectedIds(new Set(visibleIds));
   }
 
   function clearSelection() {
     setSelectedIds(new Set());
+  }
+
+  function rowClickSelect(event: MouseEvent<HTMLTableRowElement>, id: number) {
+    const target = event.target as HTMLElement;
+    if (target.closest("a,button,input,select,textarea,label")) return;
+    toggleSelected(id);
   }
 
   function renderItemsTable(tableItems: ReceiptTrackerItem[]) {
@@ -500,7 +714,15 @@ export function ReceiptNutritionTracker({
               return (
                 <tr
                   key={item.id}
-                  className={`border-t border-zinc-100 dark:border-zinc-800 ${STATUS_META[item.consumptionStatus].className} ${
+                  tabIndex={0}
+                  onClick={(event) => rowClickSelect(event, item.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      toggleSelected(item.id);
+                    }
+                  }}
+                  className={`cursor-pointer border-t border-zinc-100 transition-colors hover:bg-zinc-100/80 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-zinc-900 dark:border-zinc-800 dark:hover:bg-zinc-800/70 dark:focus:ring-zinc-100 ${STATUS_META[item.consumptionStatus].className} ${
                     selected ? "outline outline-2 outline-zinc-900 dark:outline-zinc-100" : ""
                   }`}
                 >
@@ -776,49 +998,95 @@ export function ReceiptNutritionTracker({
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
         {view === "calendar" ? (
-          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-            {calendarDays.map((day) => {
-              const dayItems = items.filter(
-                (item) => item.consumptionStatus === "consumed" && item.statusDate === day,
-              );
-              const dayTotals = computeTotals(dayItems);
-              return (
-                <section
-                  key={day}
-                  className="min-h-44 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <div>
+                <div className="text-sm font-semibold">{calendarTitle(calendarCursor, calendarMode)}</div>
+                <div className="text-xs text-zinc-500">
+                  {logs.length} logged servings · {formatNumber(consumedTotals.calories)} consumed calories
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCalendarCursor(moveCalendarCursor(calendarCursor, calendarMode, -1))}
+                  className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold">{day}</div>
-                      <div className="mt-1 text-xs text-zinc-500">{dayItems.length} consumed rows</div>
+                  Previous
+                </button>
+                {(["month", "week", "day"] as CalendarMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setCalendarMode(mode)}
+                    className={`rounded-md border px-3 py-2 text-xs font-medium ${
+                      calendarMode === mode
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+                        : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {mode[0].toUpperCase() + mode.slice(1)}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setCalendarCursor(moveCalendarCursor(calendarCursor, calendarMode, 1))}
+                  className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+            <div className={calendarMode === "month" ? "grid grid-cols-7 gap-2" : "grid gap-3 md:grid-cols-2 2xl:grid-cols-3"}>
+              {calendarDays.map((day) => {
+                const dayLogs = logs.filter((log) => datePart(log.consumedAt) === day);
+                const dayTotals = computeLogTotals(dayLogs, itemsById);
+                const isOutsideMonth = calendarMode === "month" && day.slice(0, 7) !== calendarCursor.slice(0, 7);
+                return (
+                  <section
+                    key={day}
+                    className={`min-h-36 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 ${
+                      isOutsideMonth ? "opacity-45" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold">{calendarMode === "month" ? day.slice(8) : day}</div>
+                        <div className="mt-1 text-xs text-zinc-500">{dayLogs.length} logs</div>
+                      </div>
+                      <div className="text-right text-xs text-zinc-500">
+                        <div>{formatNumber(dayTotals.calories)} cal</div>
+                        <div>{formatNumber(dayTotals.proteinG)}g P</div>
+                      </div>
                     </div>
-                    <div className="text-right text-xs text-zinc-500">
-                      <div>{formatNumber(dayTotals.calories)} cal</div>
-                      <div>{formatNumber(dayTotals.proteinG)}g protein</div>
+                    <div className="mt-3 space-y-2">
+                      {dayLogs.length === 0 ? (
+                        <div className="text-xs text-zinc-500">No logged servings.</div>
+                      ) : (
+                        dayLogs.map((log) => {
+                          const item = itemsById.get(log.lineItemId);
+                          const totals = logTotals(log, item);
+                          return (
+                            <button
+                              key={log.id}
+                              type="button"
+                              onClick={() => item && toggleSelected(item.id)}
+                              className="block w-full rounded-md border border-zinc-200 px-2 py-2 text-left text-xs hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                            >
+                              <span className="block truncate font-medium">{item?.rawName ?? "Unknown item"}</span>
+                              <span className="mt-1 block text-zinc-500">
+                                {log.consumedAt.slice(11, 16)} · {formatNumber(log.amount, 2)} {logUnitLabel(log.unit)} ·{" "}
+                                {formatNumber(totals.calories)} cal
+                              </span>
+                            </button>
+                          );
+                        })
+                      )}
                     </div>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    {dayItems.length === 0 ? (
-                      <div className="text-sm text-zinc-500">No consumed items logged.</div>
-                    ) : (
-                      dayItems.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => toggleSelected(item.id)}
-                          className="block w-full rounded-md border border-zinc-200 px-3 py-2 text-left text-xs hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
-                        >
-                          <span className="font-medium">{item.rawName}</span>
-                          <span className="mt-1 block text-zinc-500">
-                            {formatNumber(item.nutrition?.calories)} cal · {formatMoney(item.price)}
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </section>
-              );
-            })}
+                  </section>
+                );
+              })}
+            </div>
           </div>
         ) : (
           renderItemsTable(visibleItems)
@@ -849,6 +1117,118 @@ export function ReceiptNutritionTracker({
               {selectedDenominator ? `Showing ${rateLabel(selectedRate).toLowerCase()}.` : "This basis needs serving or weight data."}
             </span>
           </label>
+          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div className="text-sm font-semibold">Log consumption</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {selectedPrimaryItem ? selectedPrimaryItem.rawName : "Select one row to log a serving."}
+            </div>
+            <div className="mt-3 grid grid-cols-[80px_minmax(0,1fr)] gap-2">
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">Amount</span>
+                <input
+                  type="number"
+                  min={0.01}
+                  step={0.25}
+                  value={logAmount}
+                  onChange={(e) => setLogAmount(Math.max(Number(e.target.value) || 1, 0.01))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">Unit</span>
+                <select
+                  value={logUnit}
+                  onChange={(e) => setLogUnit(e.target.value as LogUnit)}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                >
+                  {LOG_UNITS.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {logUnitLabel(unit)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="col-span-2 text-xs">
+                <span className="mb-1 block text-zinc-500">Date and time</span>
+                <input
+                  type="datetime-local"
+                  value={logAt}
+                  onChange={(e) => setLogAt(e.target.value)}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="col-span-2 text-xs">
+                <span className="mb-1 block text-zinc-500">Note</span>
+                <input
+                  value={logNote}
+                  onChange={(e) => setLogNote(e.target.value)}
+                  placeholder="meal, person, prep..."
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!selectedPrimaryItem || saving}
+                onClick={logConsumption}
+                className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+              >
+                Log serving
+              </button>
+              <button
+                type="button"
+                disabled={!selectedPrimaryItem}
+                onClick={() => {
+                  setLogAmount(1);
+                  setLogUnit("item");
+                }}
+                className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+              >
+                1 item
+              </button>
+              <button
+                type="button"
+                disabled={!selectedPrimaryItem}
+                onClick={() => {
+                  setLogAmount(1);
+                  setLogUnit("serving");
+                }}
+                className="rounded-md border border-zinc-200 px-3 py-2 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+              >
+                1 serving
+              </button>
+            </div>
+            {selectedPrimaryLogs.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                <div className="text-xs font-medium text-zinc-500">Recent logs for this item</div>
+                {selectedPrimaryLogs.slice(0, 4).map((log) => {
+                  const totals = logTotals(log, selectedPrimaryItem);
+                  return (
+                    <div
+                      key={log.id}
+                      className="flex items-start justify-between gap-2 rounded-md border border-zinc-200 px-2 py-2 text-xs dark:border-zinc-800"
+                    >
+                      <div>
+                        <div className="font-medium">
+                          {formatNumber(log.amount, 2)} {logUnitLabel(log.unit)} · {formatNumber(totals.calories)} cal
+                        </div>
+                        <div className="mt-1 text-zinc-500">{log.consumedAt.replace("T", " ")}</div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={() => deleteLog(log.id)}
+                        className="text-zinc-500 hover:text-red-600 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <NutrientCard
               label="Calories"

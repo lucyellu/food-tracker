@@ -26,7 +26,12 @@ async function getReceipt(id: number) {
     .where(eq(schema.lineItems.receiptId, id))
     .orderBy(asc(schema.lineItems.id));
   const items = rows.map((row) => ({ ...row.item, nutrition: row.nutrition }));
-  return { receipt, items };
+  const logs = await db
+    .select()
+    .from(schema.consumptionLogs)
+    .where(eq(schema.consumptionLogs.receiptId, id))
+    .orderBy(asc(schema.consumptionLogs.consumedAt), asc(schema.consumptionLogs.id));
+  return { receipt, items, logs };
 }
 
 function formatMoney(n: number | null) {
@@ -69,7 +74,7 @@ export default async function ReceiptDetailPage({
 
   const data = await getReceipt(receiptId);
   if (!data) notFound();
-  const { receipt, items } = data;
+  const { receipt, items, logs } = data;
   const trackerItems = items.map((item) => ({
     ...item,
     rawName: item.rawName.replace(/^\[REFUNDED\]\s*/i, ""),
@@ -101,6 +106,7 @@ export default async function ReceiptDetailPage({
       <ReceiptNutritionTracker
         receiptId={receiptId}
         initialItems={trackerItems}
+        initialLogs={logs}
         purchasedAt={receipt.purchasedAt}
       />
 

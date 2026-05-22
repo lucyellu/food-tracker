@@ -90,6 +90,33 @@ export const nutritionFacts = pgTable("nutrition_facts", {
   activeIngredientsJson: text("active_ingredients_json"),
 });
 
+export const consumptionLogs = pgTable(
+  "consumption_logs",
+  {
+    id: serial("id").primaryKey(),
+    receiptId: integer("receipt_id")
+      .notNull()
+      .references(() => receipts.id, { onDelete: "cascade" }),
+    lineItemId: integer("line_item_id")
+      .notNull()
+      .references(() => lineItems.id, { onDelete: "cascade" }),
+    consumedAt: text("consumed_at").notNull(),
+    amount: doublePrecision("amount").notNull().default(1),
+    unit: text("unit", { enum: ["item", "serving", "g", "100g"] })
+      .notNull()
+      .default("serving"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("consumption_logs_receipt_id_idx").on(t.receiptId),
+    index("consumption_logs_line_item_id_idx").on(t.lineItemId),
+    index("consumption_logs_consumed_at_idx").on(t.consumedAt),
+  ],
+);
+
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
   people: integer("people").notNull().default(4),
@@ -141,4 +168,6 @@ export type LineItem = typeof lineItems.$inferSelect;
 export type NewLineItem = typeof lineItems.$inferInsert;
 export type NutritionFact = typeof nutritionFacts.$inferSelect;
 export type NewNutritionFact = typeof nutritionFacts.$inferInsert;
+export type ConsumptionLog = typeof consumptionLogs.$inferSelect;
+export type NewConsumptionLog = typeof consumptionLogs.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
