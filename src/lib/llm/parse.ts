@@ -1,6 +1,7 @@
 import { parseWithDeepSeek } from "./deepseek";
 import { parseWithGemini, parseGeminiText } from "./gemini";
 import type { ParsedReceipt } from "./schema";
+import { parseTntPackedOrderEmail } from "@/lib/receipts/tnt-email";
 
 export type ParseInput =
   | { kind: "text"; text: string }
@@ -14,6 +15,9 @@ const USE_DEEPSEEK = process.env.PREFER_DEEPSEEK === "true";
 
 export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
   if (input.kind === "text") {
+    const tntReceipt = parseTntPackedOrderEmail(input.text);
+    if (tntReceipt) return tntReceipt;
+
     if (USE_DEEPSEEK) {
       return parseWithDeepSeek(input.text);
     }

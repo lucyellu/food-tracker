@@ -35,6 +35,7 @@ function formatMoney(n: number | null) {
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   try {
     return new Date(iso).toLocaleDateString();
   } catch {

@@ -9,7 +9,7 @@ See [PROMPT.md](./PROMPT.md) for the full design spec.
 **Phase 1 — done.** Ingest, parse, persist, list, detail.
 **Phase 2** (next): USDA FoodData Central lookup → real nutrition data per item.
 **Phase 3**: Dashboard with people/days dial and macro summary.
-**Phase 3.5**: Auto-ingest receipts from Gmail via IMAP + Netlify Scheduled Functions.
+**Phase 3.5**: Auto-ingest receipts from Gmail via Google OAuth + Netlify Scheduled Functions.
 **Phase 4**: Monthly history view.
 
 ## Run locally
@@ -29,6 +29,14 @@ npm run dev
 Visit http://localhost:3000.
 
 You need: DeepSeek key, Gemini key, USDA key (Phase 2), and a Neon Postgres URL (`DATABASE_URL`). Sign up for Neon at https://neon.tech — free tier covers this app, no credit card.
+
+For Gmail import, create a Google Cloud OAuth Web client, enable the Gmail API, and add this authorized redirect URI for local development:
+
+```text
+http://localhost:3000/api/google/callback
+```
+
+Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EMAIL_ENCRYPTION_KEY`. The app requests read-only Gmail access and stores the refresh token encrypted in the settings table.
 
 ## Architecture
 
@@ -76,4 +84,4 @@ src/
 4. Site settings → Environment variables → add `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `USDA_API_KEY`, `DATABASE_URL`, and `EMAIL_ENCRYPTION_KEY` (same values as your local `.env.local`).
 5. Trigger deploy.
 
-The Phase 3.5 scheduled function (Gmail IMAP polling) will be wired into `netlify.toml` when that phase is built.
+The Phase 3.5 scheduled function (Gmail polling) will be wired into `netlify.toml` when that phase is built.

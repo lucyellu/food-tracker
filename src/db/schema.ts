@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import {
   pgTable,
   serial,
@@ -52,6 +51,15 @@ export const lineItems = pgTable(
     quantity: doublePrecision("quantity").notNull().default(1),
     unit: text("unit").notNull().default("count"),
     price: doublePrecision("price"),
+    retailerSku: text("retailer_sku"),
+    productSource: text("product_source"),
+    productUrl: text("product_url"),
+    productImageUrl: text("product_image_url"),
+    consumptionStatus: text("consumption_status", {
+      enum: ["available", "consumed", "disposed"],
+    })
+      .notNull()
+      .default("available"),
     fdcId: integer("fdc_id"),
     nutritionStatus: text("nutrition_status", {
       enum: ["pending", "matched", "unmatched", "manual"],
@@ -83,7 +91,7 @@ export const nutritionFacts = pgTable("nutrition_facts", {
 
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
-  people: integer("people").notNull().default(3),
+  people: integer("people").notNull().default(4),
   days: integer("days").notNull().default(7),
   emailEnabled: boolean("email_enabled").notNull().default(false),
   emailHost: text("email_host").default("imap.gmail.com"),

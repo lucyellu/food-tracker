@@ -1,9 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Mail, RefreshCw, Unplug } from "lucide-react";
 
 type Mode = "text" | "email" | "image";
+type GmailStatus = {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  query: string | null;
+  error?: string;
+};
 
 export default function Home() {
   const router = useRouter();
@@ -11,8 +19,76 @@ export default function Home() {
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
+  const [gmailMessage, setGmailMessage] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const gmailError = params.get("gmail_error");
+    if (gmailError) return gmailError;
+    return params.get("gmail") === "connected"
+      ? "Gmail connected. You can process inbox receipts now."
+      : null;
+  });
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function loadGmailStatus() {
+    const res = await fetch("/api/google/status");
+    const data = (await res.json()) as GmailStatus;
+    setGmailStatus(data);
+    if (data.error) setGmailMessage(data.error);
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadGmailStatus();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  async function syncGmail() {
+    setGmailLoading(true);
+    setGmailMessage(null);
+    try {
+      const res = await fetch("/api/google/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ maxResults: 10 }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setGmailMessage(data.error ?? `Gmail sync failed: ${res.status}`);
+        return;
+      }
+      setGmailMessage(
+        `Scanned ${data.scanned}, parsed ${data.parsed}, skipped ${data.skipped}, failed ${data.failed}.`,
+      );
+    } catch (e) {
+      setGmailMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGmailLoading(false);
+    }
+  }
+
+  async function disconnectGmail() {
+    setGmailLoading(true);
+    setGmailMessage(null);
+    try {
+      const res = await fetch("/api/google/disconnect", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setGmailMessage(data.error ?? `Disconnect failed: ${res.status}`);
+        return;
+      }
+      await loadGmailStatus();
+      setGmailMessage("Gmail disconnected.");
+    } catch (e) {
+      setGmailMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setGmailLoading(false);
+    }
+  }
 
   async function submit() {
     setError(null);
@@ -78,6 +154,68 @@ export default function Home() {
           Paste receipt text, upload a photo, or paste a forwarded email body. Each item gets
           parsed and saved.
         </p>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Gmail receipts</h2>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
+              {gmailStatus?.connected
+                ? `Connected${gmailStatus.email ? ` as ${gmailStatus.email}` : ""}.`
+                : "Connect a Gmail inbox and import likely receipt emails."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {gmailStatus?.connected ? (
+              <>
+                <button
+                  type="button"
+                  onClick={syncGmail}
+                  disabled={gmailLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  <RefreshCw className={`size-4 ${gmailLoading ? "animate-spin" : ""}`} />
+                  Process inbox
+                </button>
+                <button
+                  type="button"
+                  onClick={disconnectGmail}
+                  disabled={gmailLoading}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-zinc-200 dark:border-zinc-800 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  <Unplug className="size-4" />
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <a
+                href="/api/google/auth"
+                className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${
+                  gmailStatus?.configured
+                    ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90"
+                    : "border border-zinc-200 dark:border-zinc-800 text-zinc-400 pointer-events-none"
+                }`}
+              >
+                <Mail className="size-4" />
+                Connect Gmail
+              </a>
+            )}
+          </div>
+        </div>
+        {gmailStatus && !gmailStatus.configured && (
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and EMAIL_ENCRYPTION_KEY to enable Gmail.
+          </p>
+        )}
+        {gmailStatus?.query && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-500">Search: {gmailStatus.query}</p>
+        )}
+        {gmailMessage && (
+          <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 px-3 py-2 rounded-md text-sm">
+            {gmailMessage}
+          </div>
+        )}
       </div>
 
       <div className="flex gap-2">

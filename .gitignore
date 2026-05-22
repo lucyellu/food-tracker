@@ -50,3 +50,6 @@ secrets.txt
 
 # uploaded receipt images during local dev (Netlify Blobs in deploy)
 /tmp-uploads
+
+# locally parsed receipt exports may contain personal purchase data
+/parsed-receipts/

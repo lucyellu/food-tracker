@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { EnrichNutritionButton } from "./EnrichNutritionButton";
+import { EnrichProductsButton } from "./EnrichProductsButton";
+import {
+  ReceiptNutritionTracker,
+  type ReceiptTrackerItem,
+} from "./ReceiptNutritionTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +16,16 @@ async function getReceipt(id: number) {
     where: eq(schema.receipts.id, id),
   });
   if (!receipt) return null;
-  const items = await db
-    .select()
+  const rows = await db
+    .select({
+      item: schema.lineItems,
+      nutrition: schema.nutritionFacts,
+    })
     .from(schema.lineItems)
-    .where(eq(schema.lineItems.receiptId, id));
+    .leftJoin(schema.nutritionFacts, eq(schema.nutritionFacts.lineItemId, schema.lineItems.id))
+    .where(eq(schema.lineItems.receiptId, id))
+    .orderBy(asc(schema.lineItems.id));
+  const items = rows.map((row) => ({ ...row.item, nutrition: row.nutrition }));
   return { receipt, items };
 }
 
@@ -24,6 +36,7 @@ function formatMoney(n: number | null) {
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   try {
     return new Date(iso).toLocaleDateString();
   } catch {
@@ -43,84 +56,35 @@ export default async function ReceiptDetailPage({
   const data = await getReceipt(receiptId);
   if (!data) notFound();
   const { receipt, items } = data;
-
-  const summedPrice = items.reduce((acc, it) => acc + (it.price ?? 0), 0);
+  const trackerItems = items.map((item) => ({
+    ...item,
+    consumptionStatus: item.consumptionStatus ?? "available",
+  })) satisfies ReceiptTrackerItem[];
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href="/receipts" className="text-sm text-zinc-500 hover:underline">
-          ← All receipts
-        </Link>
-        <h1 className="text-2xl font-semibold mt-2">{receipt.vendor ?? "Unknown vendor"}</h1>
-        <p className="text-sm text-zinc-500 mt-1">
-          {formatDate(receipt.purchasedAt)} · {items.length} items · {formatMoney(receipt.total)}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <Link href="/receipts" className="text-sm text-zinc-500 hover:underline">
+            ← All receipts
+          </Link>
+          <h1 className="text-2xl font-semibold mt-2">{receipt.vendor ?? "Unknown vendor"}</h1>
+          <p className="text-sm text-zinc-500 mt-1">
+            {formatDate(receipt.purchasedAt)} · {items.length} items · {formatMoney(receipt.total)}
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <EnrichNutritionButton receiptId={receiptId} />
+          <EnrichProductsButton receiptId={receiptId} />
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-zinc-50 dark:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400 text-left">
-            <tr>
-              <th className="px-4 py-3 font-medium">Item</th>
-              <th className="px-4 py-3 font-medium text-right">Qty</th>
-              <th className="px-4 py-3 font-medium">Unit</th>
-              <th className="px-4 py-3 font-medium text-right">Price</th>
-              <th className="px-4 py-3 font-medium">Nutrition</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it) => (
-              <tr
-                key={it.id}
-                className="border-t border-zinc-100 dark:border-zinc-800"
-              >
-                <td className="px-4 py-3 font-medium">{it.rawName}</td>
-                <td className="px-4 py-3 text-right">{it.quantity}</td>
-                <td className="px-4 py-3 text-zinc-500">{it.unit}</td>
-                <td className="px-4 py-3 text-right">{formatMoney(it.price)}</td>
-                <td className="px-4 py-3 text-xs">
-                  <span
-                    className={
-                      it.nutritionStatus === "matched"
-                        ? "text-green-600"
-                        : it.nutritionStatus === "unmatched"
-                          ? "text-amber-600"
-                          : "text-zinc-500"
-                    }
-                  >
-                    {it.nutritionStatus}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {items.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
-                  No items parsed from this receipt.
-                </td>
-              </tr>
-            )}
-          </tbody>
-          {items.length > 0 && (
-            <tfoot className="bg-zinc-50 dark:bg-zinc-800/30 text-sm">
-              <tr>
-                <td colSpan={3} className="px-4 py-3 font-medium text-right">
-                  Sum of line item prices
-                </td>
-                <td className="px-4 py-3 text-right font-medium">
-                  {formatMoney(summedPrice)}
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+      <ReceiptNutritionTracker receiptId={receiptId} initialItems={trackerItems} />
 
       <div className="text-xs text-zinc-500">
-        Nutrition lookup is not wired up yet — coming in Phase 2 (USDA FoodData Central). All items
-        currently show <code>pending</code>.
+        Nutrition comes from USDA FoodData Central. Item totals are estimated only when the receipt
+        exposes a weight or package size; otherwise the row shows a per-100g reference. Salt is
+        calculated from sodium as sodium chloride equivalent.
       </div>
     </div>
   );

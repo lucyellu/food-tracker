@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseReceipt } from "@/lib/llm/parse";
-import { db, schema } from "@/db/client";
+import { schema } from "@/db/client";
+import { persistParsedReceipt } from "@/lib/receipts/persist";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -63,30 +64,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const [receipt] = await db
-      .insert(schema.receipts)
-      .values({
-        vendor: parsed.vendor,
-        purchasedAt: parsed.purchased_at,
-        total: parsed.total,
-        source: SOURCE_MAP[kind],
-        rawInputKind: RAW_KIND_MAP[kind],
-        rawInputRef,
-        parseStatus: "parsed",
-      })
-      .returning();
-
-    if (parsed.items.length > 0) {
-      await db.insert(schema.lineItems).values(
-        parsed.items.map((it) => ({
-          receiptId: receipt.id,
-          rawName: it.raw_name,
-          quantity: it.quantity,
-          unit: it.unit,
-          price: it.price,
-        })),
-      );
-    }
+    const receipt = await persistParsedReceipt({
+      parsed,
+      source: SOURCE_MAP[kind],
+      rawInputKind: RAW_KIND_MAP[kind],
+      rawInputRef,
+    });
 
     return NextResponse.json({
       receiptId: receipt.id,
