@@ -468,7 +468,7 @@ export function ReceiptNutritionTracker({
     const tableTotals = computeTotals(tableItems);
 
     return (
-      <div className="max-h-[72vh] overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="h-[72vh] overflow-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-50 text-left text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
             <tr>
@@ -824,7 +824,7 @@ export function ReceiptNutritionTracker({
           renderItemsTable(visibleItems)
         )}
 
-        <aside className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4">
+        <aside className="h-[72vh] space-y-4 overflow-auto rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 xl:sticky xl:top-4">
           <div>
             <div className="text-sm font-semibold">Selected items</div>
             <div className="mt-1 text-xs text-zinc-500">
