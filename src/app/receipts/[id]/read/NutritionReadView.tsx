@@ -73,6 +73,25 @@ type NutrientRow = {
   upper?: number;
 };
 
+type SourceKey = keyof Pick<
+  ReadTotals,
+  | "calories"
+  | "proteinG"
+  | "carbsG"
+  | "fatG"
+  | "fiberG"
+  | "sugarG"
+  | "sodiumMg"
+  | "potassiumMg"
+  | "magnesiumMg"
+  | "calciumMg"
+  | "ironMg"
+  | "vitaminAMcg"
+  | "vitaminDMcg"
+  | "vitaminEMg"
+  | "vitaminKMcg"
+>;
+
 const DEFAULT_PROFILES: PersonProfile[] = [
   {
     id: "lucy",
@@ -115,6 +134,24 @@ const EMPTY_TOTALS: ReadTotals = {
 };
 
 const FAT_SOLUBLE_KEYS = new Set(["vitaminAMcg", "vitaminDMcg", "vitaminEMg", "vitaminKMcg"]);
+
+const FOOD_SUGGESTIONS: Partial<Record<SourceKey, string[]>> = {
+  potassiumMg: [
+    "Potatoes or sweet potatoes",
+    "White beans, lentils, or edamame",
+    "Spinach, beet greens, or Swiss chard",
+    "Tomato paste/sauce, bananas, oranges, yogurt, or milk",
+  ],
+  calciumMg: ["Milk or yogurt", "Calcium-set tofu", "Fortified soy milk", "Canned fish with bones"],
+  magnesiumMg: ["Pumpkin seeds", "Almonds or cashews", "Beans and lentils", "Spinach"],
+  ironMg: ["Clams, mussels, beef, or sardines", "Lentils and beans", "Spinach", "Iron-fortified grains"],
+  vitaminDMcg: ["Salmon, trout, sardines, or tuna", "Fortified milk or soy milk", "Egg yolks", "UV-exposed mushrooms"],
+  vitaminEMg: ["Sunflower seeds", "Almonds", "Peanut butter", "Wheat germ oil"],
+  vitaminAMcg: ["Sweet potato", "Carrots", "Spinach or kale", "Pumpkin"],
+  vitaminKMcg: ["Kale", "Spinach", "Collards", "Broccoli"],
+  fiberG: ["Beans and lentils", "Oats", "Berries", "Whole grains and vegetables"],
+  proteinG: ["Fish or seafood", "Tofu or tempeh", "Beans and lentils", "Eggs or lean meat"],
+};
 
 function parseJsonRecord(value: string | null | undefined) {
   if (!value) return {};
@@ -374,6 +411,29 @@ function updateProfile(profiles: PersonProfile[], id: string, patch: Partial<Per
   return profiles.map((profile) => (profile.id === id ? { ...profile, ...patch } : profile));
 }
 
+function rowSourceKey(row: NutrientRow): SourceKey | null {
+  return row.key === "saltG" || row.key.includes("Upper") ? null : (row.key as SourceKey);
+}
+
+function itemSourceValue(item: ReceiptTrackerItem, row: NutrientRow) {
+  const key = rowSourceKey(row);
+  if (!key) return null;
+  const values = rowValues(item);
+  return values.canTotal ? values[key] ?? null : null;
+}
+
+function topSources(items: ReceiptTrackerItem[], row: NutrientRow) {
+  return items
+    .map((item) => ({
+      id: item.id,
+      name: item.rawName,
+      value: itemSourceValue(item, row),
+    }))
+    .filter((item): item is { id: number; name: string; value: number } => item.value != null && item.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 4);
+}
+
 function addDaysToIso(iso: string | null, days: number) {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
   const date = new Date(`${iso}T00:00:00.000Z`);
@@ -390,6 +450,7 @@ export function NutritionReadView({
 }) {
   const [days, setDays] = useState(7);
   const [profiles, setProfiles] = useState<PersonProfile[]>(DEFAULT_PROFILES);
+  const [reverseCalories, setReverseCalories] = useState(1500);
 
   const totals = useMemo(() => computeTotals(initialItems), [initialItems]);
   const daily = useMemo(() => scaledDaily(totals, profiles.length, days), [totals, profiles.length, days]);
@@ -422,6 +483,9 @@ export function NutritionReadView({
   const highRows = rows.filter((row) => signalLabel(row).includes("Watch") || signalLabel(row).includes("Above") || signalLabel(row).includes("upper"));
   const strongestLow = [...lowRows].sort((a, b) => percent(a.value, a.target) - percent(b.value, b.target)).slice(0, 4);
   const strongestHigh = [...highRows].sort((a, b) => percent(b.value, b.target) - percent(a.value, a.target)).slice(0, 3);
+  const reverseDays = totals.calories > 0 ? totals.calories / (Math.max(profiles.length, 1) * Math.max(reverseCalories, 1)) : 0;
+  const reversePeople = totals.calories > 0 ? totals.calories / (Math.max(days, 1) * Math.max(reverseCalories, 1)) : 0;
+  const receiptPersonDays = totals.calories > 0 ? totals.calories / Math.max(reverseCalories, 1) : 0;
 
   return (
     <div className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
@@ -444,6 +508,35 @@ export function NutritionReadView({
             className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
           />
         </label>
+
+        <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+          <div className="text-sm font-semibold">Reverse planner</div>
+          <div className="mt-1 text-xs text-zinc-500">Ask how far this receipt goes at a target daily calorie level.</div>
+          <label className="mt-3 block text-xs">
+            <span className="mb-1 block text-zinc-500">Daily calories to test</span>
+            <input
+              type="number"
+              min={1}
+              value={reverseCalories}
+              onChange={(event) => setReverseCalories(Math.max(1, Number(event.target.value) || 1))}
+              className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+            />
+          </label>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-950">
+              <div className="text-lg font-semibold">{fmt(receiptPersonDays, 1)}</div>
+              <div className="text-zinc-500">person-days</div>
+            </div>
+            <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-950">
+              <div className="text-lg font-semibold">{fmt(reverseDays, 1)}</div>
+              <div className="text-zinc-500">days for {profiles.length}</div>
+            </div>
+            <div className="rounded bg-zinc-50 p-2 dark:bg-zinc-950">
+              <div className="text-lg font-semibold">{fmt(reversePeople, 1)}</div>
+              <div className="text-zinc-500">people for {days}d</div>
+            </div>
+          </div>
+        </div>
 
         <div className="space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
           {profiles.map((profile) => (
@@ -550,6 +643,61 @@ export function NutritionReadView({
               {strongestHigh.length ? strongestHigh.map((row) => <div key={row.label}>{row.label}: {fmt(percent(row.value, row.target))}%</div>) : "No strong over-target signals."}
             </div>
           </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          {strongestLow.slice(0, 4).map((row) => {
+            const sources = topSources(initialItems, row);
+            const suggestions = FOOD_SUGGESTIONS[rowSourceKey(row) ?? "potassiumMg"] ?? [];
+            return (
+              <section key={row.label} className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Raise {row.label}</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      This receipt covers {fmt(percent(row.value, row.target))}% of the daily target per person.
+                    </div>
+                  </div>
+                  <span className="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800 dark:bg-red-950/40 dark:text-red-200">
+                    low
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-medium text-zinc-500">Biggest sources in this receipt</div>
+                    <div className="mt-2 space-y-2 text-xs">
+                      {sources.length ? (
+                        sources.map((source) => (
+                          <div key={source.id} className="rounded bg-zinc-50 px-2 py-1.5 dark:bg-zinc-950">
+                            <div className="truncate font-medium">{source.name}</div>
+                            <div className="mt-0.5 text-zinc-500">
+                              {fmt(source.value, source.value < 10 ? 1 : 0)} {row.unit}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-zinc-500">No item-level source data yet.</div>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-zinc-500">Useful foods to buy more often</div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      {suggestions.length ? (
+                        suggestions.map((suggestion) => (
+                          <span key={suggestion} className="rounded-full bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
+                            {suggestion}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-zinc-500">Add more whole-food sources for this nutrient.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          })}
         </div>
 
         <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">

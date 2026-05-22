@@ -389,6 +389,65 @@ function computeTotals(items: ReceiptTrackerItem[]): Totals {
   }, emptyTotals());
 }
 
+function computeSelectedTotals(items: ReceiptTrackerItem[]): Totals {
+  return items.reduce((acc, item) => {
+    const values = rowValues(item);
+    const servings = values.meta?.serving?.estimatedServings ?? 0;
+    acc.itemCount += 1;
+    acc.price += item.price ?? 0;
+    acc.servings += servings;
+    if (!item.nutrition && !values.per100gOnly) return acc;
+    acc.knownItems += 1;
+    acc.totalGrams += item.nutrition?.totalGrams ?? (values.per100gOnly ? 100 : 0);
+    acc.calories += values.calories ?? 0;
+    acc.proteinG += values.proteinG ?? 0;
+    acc.carbsG += values.carbsG ?? 0;
+    acc.fatG += values.fatG ?? 0;
+    acc.sugarG += values.sugarG ?? 0;
+    acc.fiberG += values.fiberG ?? 0;
+    acc.sodiumMg += values.sodiumMg ?? 0;
+    acc.potassiumMg += values.potassiumMg ?? 0;
+    acc.magnesiumMg += values.magnesiumMg ?? 0;
+    acc.calciumMg += values.calciumMg ?? 0;
+    acc.ironMg += values.ironMg ?? 0;
+    return acc;
+  }, emptyTotals());
+}
+
+function scaleRecord(record: Record<string, number>, divisor: number | null) {
+  if (!divisor || divisor <= 0) return {};
+  return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, value / divisor]));
+}
+
+function aggregateRecord(items: ReceiptTrackerItem[], field: "vitaminsJson" | "mineralsJson") {
+  const totals: Record<string, number> = {};
+  for (const item of items) {
+    const record = parseJsonRecord(item.nutrition?.[field]);
+    for (const [key, value] of Object.entries(record)) {
+      if (!Number.isFinite(value)) continue;
+      totals[key] = (totals[key] ?? 0) + value;
+    }
+  }
+  return totals;
+}
+
+function formatMicroValue(label: string, value: number) {
+  const unitMatch = label.match(/\(([^)]+)\)\s*$/);
+  const unit = unitMatch?.[1] ?? "";
+  const digits = Math.abs(value) < 10 ? 2 : Math.abs(value) < 100 ? 1 : 0;
+  return `${formatNumber(value, digits)}${unit ? ` ${unit}` : ""}`;
+}
+
+function compactMicroLabel(label: string) {
+  return label.replace(/\s*\([^)]+\)\s*$/, "").replace(/,\s*/g, ", ");
+}
+
+function microEntries(record: Record<string, number>) {
+  return Object.entries(record)
+    .filter(([, value]) => Number.isFinite(value) && Math.abs(value) > 0)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+}
+
 function addScaledNutrients(
   totals: Totals,
   item: ReceiptTrackerItem,
@@ -604,7 +663,7 @@ export function ReceiptNutritionTracker({
     () => scaleTotals(trackedTotals, Math.max(people, 1) * Math.max(days, 1)),
     [trackedTotals, people, days],
   );
-  const selectedTotals = useMemo(() => computeTotals(selectedItems), [selectedItems]);
+  const selectedTotals = useMemo(() => computeSelectedTotals(selectedItems), [selectedItems]);
   const selectedScaledTotals = useMemo(
     () => scaleTotals(selectedTotals, rateDivisor(selectedRate, selectedTotals, people, days)),
     [selectedTotals, selectedRate, people, days],
@@ -635,6 +694,19 @@ export function ReceiptNutritionTracker({
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
   const unknownNutritionRows = allTotals.itemCount - allTotals.knownItems - statusCounts.refunded;
   const selectedDenominator = rateDivisor(selectedRate, selectedTotals, people, days);
+  const microSummaryItems = selectedItems.length > 0 ? selectedItems : visibleItems;
+  const microSummaryLabel = selectedItems.length > 0 ? "selected rows" : "visible rows";
+  const microDivisor = selectedItems.length > 0 ? selectedDenominator : 1;
+  const selectedVitamins = useMemo(
+    () => scaleRecord(aggregateRecord(microSummaryItems, "vitaminsJson"), microDivisor),
+    [microSummaryItems, microDivisor],
+  );
+  const selectedMinerals = useMemo(
+    () => scaleRecord(aggregateRecord(microSummaryItems, "mineralsJson"), microDivisor),
+    [microSummaryItems, microDivisor],
+  );
+  const vitaminEntries = useMemo(() => microEntries(selectedVitamins), [selectedVitamins]);
+  const mineralEntries = useMemo(() => microEntries(selectedMinerals), [selectedMinerals]);
   const laneStyle = {
     "--receipt-lane": outlineCollapsed ? "52px" : `${outlineWidth}px`,
     "--details-lane": detailsCollapsed ? "52px" : `${detailsWidth}px`,
@@ -1527,6 +1599,52 @@ export function ReceiptNutritionTracker({
               dv={DAILY_VALUES.calciumMg}
             />
           </div>
+          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Vitamin & mineral label</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  Showing {microSummaryLabel}
+                  {selectedItems.length > 0 ? ` as ${rateLabel(selectedRate).toLowerCase()}` : ""}.
+                </div>
+              </div>
+              <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+                {vitaminEntries.length + mineralEntries.length}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-3 text-xs md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <div>
+                <div className="font-medium text-zinc-500">Vitamins</div>
+                <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+                  {vitaminEntries.length ? (
+                    vitaminEntries.map(([label, value]) => (
+                      <div key={label} className="flex justify-between gap-2 rounded bg-zinc-50 px-2 py-1 dark:bg-zinc-950">
+                        <span className="truncate">{compactMicroLabel(label)}</span>
+                        <span className="shrink-0 font-medium">{formatMicroValue(label, value)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500">No vitamin details yet.</div>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div className="font-medium text-zinc-500">Minerals</div>
+                <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+                  {mineralEntries.length ? (
+                    mineralEntries.map(([label, value]) => (
+                      <div key={label} className="flex justify-between gap-2 rounded bg-zinc-50 px-2 py-1 dark:bg-zinc-950">
+                        <span className="truncate">{compactMicroLabel(label)}</span>
+                        <span className="shrink-0 font-medium">{formatMicroValue(label, value)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-zinc-500">No mineral details yet.</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {STATUS_OPTIONS.map((status) => (
               <button
@@ -1548,8 +1666,8 @@ export function ReceiptNutritionTracker({
             </button>
           </div>
           <div className="text-xs text-zinc-500">
-            The 44 receipt rows include fulfilled, refunded, and unmatched rows. Nutrition totals only count rows with
-            both a USDA match and enough size data to estimate the whole item.
+            Selected totals use whole-item nutrition when package size is known. Rows with only a USDA reference show a
+            per-100g estimate instead of staying at zero.
           </div>
             </>
           )}
