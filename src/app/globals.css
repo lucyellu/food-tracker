@@ -3,6 +3,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --scrollbar-track: #f4f4f5;
+  --scrollbar-thumb: #a1a1aa;
+  --scrollbar-thumb-hover: #71717a;
 }
 
 @theme inline {
@@ -16,7 +19,38 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --scrollbar-track: #18181b;
+    --scrollbar-thumb: #52525b;
+    --scrollbar-thumb-hover: #71717a;
   }
+}
+
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
 }
 
 body {
