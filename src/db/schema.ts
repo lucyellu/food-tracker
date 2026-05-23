@@ -84,6 +84,7 @@ export const nutritionFacts = pgTable("nutrition_facts", {
   sugarG: doublePrecision("sugar_g"),
   sodiumMg: doublePrecision("sodium_mg"),
   alcoholG: doublePrecision("alcohol_g"),
+  caffeineMg: doublePrecision("caffeine_mg"),
   vitaminsJson: text("vitamins_json"),
   mineralsJson: text("minerals_json"),
   ingredientsText: text("ingredients_text"),

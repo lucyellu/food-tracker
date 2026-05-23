@@ -18,6 +18,13 @@ type PersonProfile = {
 
 type NutritionMeta = {
   basis?: string;
+  active?: {
+    caffeineMg?: number | null;
+    alcoholG?: number | null;
+    thcMg?: number | null;
+    cbdMg?: number | null;
+    amphetamineMg?: number | null;
+  };
   per100g?: {
     calories?: number | null;
     proteinG?: number | null;
@@ -26,6 +33,8 @@ type NutritionMeta = {
     fiberG?: number | null;
     sugarG?: number | null;
     sodiumMg?: number | null;
+    alcoholG?: number | null;
+    caffeineMg?: number | null;
   };
   per100gMinerals?: {
     calciumMg?: number | null;
@@ -44,6 +53,11 @@ type ReadTotals = {
   fiberG: number;
   sugarG: number;
   sodiumMg: number;
+  alcoholG: number;
+  caffeineMg: number;
+  thcMg: number;
+  cbdMg: number;
+  amphetamineMg: number;
   potassiumMg: number;
   magnesiumMg: number;
   calciumMg: number;
@@ -121,6 +135,11 @@ const EMPTY_TOTALS: ReadTotals = {
   fiberG: 0,
   sugarG: 0,
   sodiumMg: 0,
+  alcoholG: 0,
+  caffeineMg: 0,
+  thcMg: 0,
+  cbdMg: 0,
+  amphetamineMg: 0,
   potassiumMg: 0,
   magnesiumMg: 0,
   calciumMg: 0,
@@ -220,6 +239,11 @@ function rowValues(item: ReceiptTrackerItem) {
     fatG: per100gOnly ? meta.per100g?.fatG : n?.fatG,
     fiberG: per100gOnly ? meta.per100g?.fiberG : n?.fiberG,
     sugarG: per100gOnly ? meta.per100g?.sugarG : n?.sugarG,
+    alcoholG: per100gOnly ? meta.per100g?.alcoholG : (n?.alcoholG ?? meta.active?.alcoholG),
+    caffeineMg: per100gOnly ? meta.per100g?.caffeineMg : (n?.caffeineMg ?? meta.active?.caffeineMg),
+    thcMg: meta.active?.thcMg,
+    cbdMg: meta.active?.cbdMg,
+    amphetamineMg: meta.active?.amphetamineMg,
     sodiumMg: per100gOnly ? (meta.per100gMinerals?.sodiumMg ?? meta.per100g?.sodiumMg) : n?.sodiumMg,
     potassiumMg: per100gOnly ? meta.per100gMinerals?.potassiumMg : mineralValue(item, "potassium"),
     magnesiumMg: per100gOnly ? meta.per100gMinerals?.magnesiumMg : mineralValue(item, "magnesium"),
@@ -229,7 +253,7 @@ function rowValues(item: ReceiptTrackerItem) {
     vitaminDMcg: per100gOnly ? null : vitaminDValue(item),
     vitaminEMg: per100gOnly ? null : vitaminEValue(item),
     vitaminKMcg: per100gOnly ? null : vitaminKValue(item),
-    canTotal: Boolean(n?.totalGrams),
+    canTotal: Boolean(n?.totalGrams || meta.basis === "manual_entry"),
   };
 }
 
@@ -251,6 +275,11 @@ function computeTotals(items: ReceiptTrackerItem[]) {
     acc.fiberG += values.fiberG ?? 0;
     acc.sugarG += values.sugarG ?? 0;
     acc.sodiumMg += values.sodiumMg ?? 0;
+    acc.alcoholG += values.alcoholG ?? 0;
+    acc.caffeineMg += values.caffeineMg ?? 0;
+    acc.thcMg += values.thcMg ?? 0;
+    acc.cbdMg += values.cbdMg ?? 0;
+    acc.amphetamineMg += values.amphetamineMg ?? 0;
     acc.potassiumMg += values.potassiumMg ?? 0;
     acc.magnesiumMg += values.magnesiumMg ?? 0;
     acc.calciumMg += values.calciumMg ?? 0;
@@ -293,6 +322,11 @@ function targetsForProfile(profile: PersonProfile): DailyTargets {
     fiberG: female ? (age > 50 ? 21 : 25) : age > 50 ? 30 : 38,
     sugarG: (calories * 0.1) / 4,
     sodiumMg: 2300,
+    alcoholG: 0,
+    caffeineMg: 400,
+    thcMg: 0,
+    cbdMg: 0,
+    amphetamineMg: 0,
     potassiumMg: female ? 2600 : 3400,
     magnesiumMg: female ? 320 : 420,
     calciumMg: female && age > 50 ? 1200 : 1000,
@@ -326,6 +360,11 @@ function averageTargets(profiles: PersonProfile[]) {
       fiberG: 0,
       sugarG: 0,
       sodiumMg: 0,
+      alcoholG: 0,
+      caffeineMg: 0,
+      thcMg: 0,
+      cbdMg: 0,
+      amphetamineMg: 0,
       potassiumMg: 0,
       magnesiumMg: 0,
       calciumMg: 0,
@@ -648,6 +687,22 @@ export function NutritionReadView({
               {strongestHigh.length ? strongestHigh.map((row) => <div key={row.label}>{row.label}: {fmt(percent(row.value, row.target))}%</div>) : "No strong over-target signals."}
             </div>
           </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-5">
+          {[
+            ["Caffeine", `${fmt(daily.caffeineMg)} mg`],
+            ["Alcohol", `${fmt(daily.alcoholG, 1)} g`],
+            ["THC", `${fmt(daily.thcMg, 1)} mg`],
+            ["CBD", `${fmt(daily.cbdMg, 1)} mg`],
+            ["Amphetamine", `${fmt(daily.amphetamineMg, 1)} mg`],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+              <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</div>
+              <div className="mt-1 text-xl font-semibold">{value}</div>
+              <div className="mt-1 text-xs text-zinc-500">per person-day</div>
+            </div>
+          ))}
         </div>
 
         <div className="grid gap-3 lg:grid-cols-2">

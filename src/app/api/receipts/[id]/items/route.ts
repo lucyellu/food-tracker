@@ -13,6 +13,101 @@ const STATUS = new Set([
   "unavailable",
   "refunded",
 ]);
+const CUSTOM_ENTRY_TYPES = new Set(["caffeine", "alcohol", "cannabis", "medication", "other"]);
+
+function finiteOrNull(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const receiptId = Number(id);
+  if (!Number.isFinite(receiptId)) {
+    return NextResponse.json({ error: "Invalid receipt id" }, { status: 400 });
+  }
+
+  const body = (await req.json()) as {
+    name?: string;
+    entryType?: string;
+    consumedAt?: string;
+    note?: string | null;
+    price?: number | null;
+    caffeineMg?: number | null;
+    alcoholG?: number | null;
+    thcMg?: number | null;
+    cbdMg?: number | null;
+    amphetamineMg?: number | null;
+  };
+  const name = body.name?.trim();
+  const entryType = body.entryType && CUSTOM_ENTRY_TYPES.has(body.entryType) ? body.entryType : "other";
+  const consumedAt =
+    body.consumedAt && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(body.consumedAt)
+      ? body.consumedAt
+      : new Date().toISOString().slice(0, 16);
+  if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
+
+  const active = {
+    caffeineMg: finiteOrNull(body.caffeineMg),
+    alcoholG: finiteOrNull(body.alcoholG),
+    thcMg: finiteOrNull(body.thcMg),
+    cbdMg: finiteOrNull(body.cbdMg),
+    amphetamineMg: finiteOrNull(body.amphetamineMg),
+  };
+  const hasAnyAmount = Object.values(active).some((value) => value != null);
+  if (!hasAnyAmount) {
+    return NextResponse.json({ error: "At least one tracked amount is required" }, { status: 400 });
+  }
+
+  const [item] = await db
+    .insert(schema.lineItems)
+    .values({
+      receiptId,
+      rawName: name,
+      normalizedName: name,
+      quantity: 1,
+      unit: entryType,
+      price: finiteOrNull(body.price),
+      nutritionStatus: "manual",
+      consumptionStatus: "consumed",
+      statusDate: consumedAt.slice(0, 10),
+      productSource: "Manual",
+    })
+    .returning();
+
+  const activeIngredientsJson = JSON.stringify({
+    source: "manual",
+    basis: "manual_entry",
+    entryType,
+    active,
+  });
+
+  const [nutrition] = await db
+    .insert(schema.nutritionFacts)
+    .values({
+      lineItemId: item.id,
+      alcoholG: active.alcoholG,
+      caffeineMg: active.caffeineMg,
+      vitaminsJson: "{}",
+      mineralsJson: "{}",
+      activeIngredientsJson,
+    })
+    .returning();
+
+  const [log] = await db
+    .insert(schema.consumptionLogs)
+    .values({
+      receiptId,
+      lineItemId: item.id,
+      consumedAt,
+      amount: 1,
+      unit: "serving",
+      note: body.note?.trim() || `${entryType} entry`,
+    })
+    .returning();
+
+  return NextResponse.json({ item: { ...item, nutrition }, log });
+}
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;

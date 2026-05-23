@@ -14,6 +14,7 @@ const NUTRIENT_IDS = {
   sugar: new Set([2000, 1063]),
   sodium: new Set([1093]),
   alcohol: new Set([1018]),
+  caffeine: new Set([1057]),
 };
 
 const MINERAL_IDS = {
@@ -83,6 +84,7 @@ type Per100gNutrition = {
   sugarG: number | null;
   sodiumMg: number | null;
   alcoholG: number | null;
+  caffeineMg: number | null;
 };
 
 type Per100gMinerals = {
@@ -391,6 +393,7 @@ function per100gNutrition(food: FoodDetails): Per100gNutrition {
     sugarG: getNutrient(food, NUTRIENT_IDS.sugar),
     sodiumMg: getNutrient(food, NUTRIENT_IDS.sodium),
     alcoholG: getNutrient(food, NUTRIENT_IDS.alcohol),
+    caffeineMg: getNutrient(food, NUTRIENT_IDS.caffeine),
   };
 }
 
@@ -474,6 +477,7 @@ async function saveNutrition(item: LineItem, match: MatchResult) {
       sugarG: scale(per100g.sugarG, factor),
       sodiumMg: scale(per100g.sodiumMg, factor),
       alcoholG: scale(per100g.alcoholG, factor),
+      caffeineMg: scale(per100g.caffeineMg, factor),
       vitaminsJson: JSON.stringify(groups.vitamins),
       mineralsJson: JSON.stringify(groups.minerals),
       ingredientsText: match.food.ingredients ?? null,
@@ -491,6 +495,7 @@ async function saveNutrition(item: LineItem, match: MatchResult) {
         sugarG: scale(per100g.sugarG, factor),
         sodiumMg: scale(per100g.sodiumMg, factor),
         alcoholG: scale(per100g.alcoholG, factor),
+        caffeineMg: scale(per100g.caffeineMg, factor),
         vitaminsJson: JSON.stringify(groups.vitamins),
         mineralsJson: JSON.stringify(groups.minerals),
         ingredientsText: match.food.ingredients ?? null,

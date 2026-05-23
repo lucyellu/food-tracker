@@ -25,6 +25,7 @@ type CalendarMode = "month" | "week" | "day";
 type LogUnit = "item" | "serving" | "g" | "100g";
 type ResizableLane = "receipt" | "details";
 type TargetSignalMode = "goal" | "limit" | "energy";
+type CustomEntryType = "caffeine" | "alcohol" | "cannabis" | "medication" | "other";
 
 const RECEIPT_LANE_MIN = 210;
 const RECEIPT_LANE_MAX = 340;
@@ -35,6 +36,14 @@ const LANE_NUDGE_PX = 16;
 type NutritionMeta = {
   basis?: string;
   dataType?: string;
+  entryType?: string;
+  active?: {
+    caffeineMg?: number | null;
+    alcoholG?: number | null;
+    thcMg?: number | null;
+    cbdMg?: number | null;
+    amphetamineMg?: number | null;
+  };
   serving?: { estimatedServings?: number | null };
   per100g?: {
     calories?: number | null;
@@ -44,6 +53,8 @@ type NutritionMeta = {
     fiberG?: number | null;
     sugarG?: number | null;
     sodiumMg?: number | null;
+    alcoholG?: number | null;
+    caffeineMg?: number | null;
   };
   per100gMinerals?: {
     calciumMg?: number | null;
@@ -63,6 +74,8 @@ type Nutrition = {
   fiberG: number | null;
   sugarG: number | null;
   sodiumMg: number | null;
+  alcoholG: number | null;
+  caffeineMg: number | null;
   mineralsJson: string | null;
   vitaminsJson: string | null;
   activeIngredientsJson: string | null;
@@ -112,6 +125,11 @@ type Totals = {
   sugarG: number;
   fiberG: number;
   sodiumMg: number;
+  alcoholG: number;
+  caffeineMg: number;
+  thcMg: number;
+  cbdMg: number;
+  amphetamineMg: number;
   potassiumMg: number;
   magnesiumMg: number;
   calciumMg: number;
@@ -162,6 +180,22 @@ const DAILY_VALUES = {
 const DAILY_VALUE_BASIS = "Personal target: 110 lb, 165 cm, female, age 35";
 
 const LOG_UNITS: LogUnit[] = ["item", "serving", "g", "100g"];
+const CUSTOM_ENTRY_TYPES: CustomEntryType[] = ["caffeine", "alcohol", "cannabis", "medication", "other"];
+
+const NUTRIENT_STICKERS = {
+  calories: "/nutrients/calories.png",
+  protein: "/nutrients/protein.png",
+  carbs: "/nutrients/carbs.png",
+  fat: "/nutrients/fat.png",
+  fiber: "/nutrients/fiber.png",
+  sugar: "/nutrients/sugar.png",
+  sodium: "/nutrients/sodium.png",
+  potassium: "/nutrients/potassium.png",
+  caffeine: "/nutrients/caffeine.png",
+  alcohol: "/nutrients/alcohol.png",
+  cannabis: "/nutrients/cannabis.png",
+  medication: "/nutrients/medication.png",
+} as const;
 
 function formatMoney(n: number | null | undefined) {
   if (n == null) return "-";
@@ -382,6 +416,11 @@ function rowValues(item: ReceiptTrackerItem) {
     fatG: per100gOnly ? meta?.per100g?.fatG : n?.fatG,
     sugarG: per100gOnly ? meta?.per100g?.sugarG : n?.sugarG,
     fiberG: per100gOnly ? meta?.per100g?.fiberG : n?.fiberG,
+    alcoholG: per100gOnly ? meta?.per100g?.alcoholG : (n?.alcoholG ?? meta?.active?.alcoholG),
+    caffeineMg: per100gOnly ? meta?.per100g?.caffeineMg : (n?.caffeineMg ?? meta?.active?.caffeineMg),
+    thcMg: meta?.active?.thcMg ?? null,
+    cbdMg: meta?.active?.cbdMg ?? null,
+    amphetamineMg: meta?.active?.amphetamineMg ?? null,
     sodiumMg: per100gOnly
       ? (meta?.per100gMinerals?.sodiumMg ?? meta?.per100g?.sodiumMg)
       : n?.sodiumMg,
@@ -408,6 +447,11 @@ function emptyTotals(): Totals {
     sugarG: 0,
     fiberG: 0,
     sodiumMg: 0,
+    alcoholG: 0,
+    caffeineMg: 0,
+    thcMg: 0,
+    cbdMg: 0,
+    amphetamineMg: 0,
     potassiumMg: 0,
     magnesiumMg: 0,
     calciumMg: 0,
@@ -426,16 +470,21 @@ function computeTotals(items: ReceiptTrackerItem[]): Totals {
     acc.itemCount += 1;
     acc.price += item.price ?? 0;
     acc.servings += servings;
-    if (!item.nutrition?.totalGrams) return acc;
+    if (!item.nutrition?.totalGrams && values.meta?.basis !== "manual_entry") return acc;
     acc.knownItems += 1;
-    acc.totalGrams += item.nutrition.totalGrams;
-    acc.calories += item.nutrition.calories ?? 0;
-    acc.proteinG += item.nutrition.proteinG ?? 0;
-    acc.carbsG += item.nutrition.carbsG ?? 0;
-    acc.fatG += item.nutrition.fatG ?? 0;
-    acc.sugarG += item.nutrition.sugarG ?? 0;
-    acc.fiberG += item.nutrition.fiberG ?? 0;
-    acc.sodiumMg += item.nutrition.sodiumMg ?? 0;
+    acc.totalGrams += item.nutrition?.totalGrams ?? 0;
+    acc.calories += values.calories ?? 0;
+    acc.proteinG += values.proteinG ?? 0;
+    acc.carbsG += values.carbsG ?? 0;
+    acc.fatG += values.fatG ?? 0;
+    acc.sugarG += values.sugarG ?? 0;
+    acc.fiberG += values.fiberG ?? 0;
+    acc.sodiumMg += values.sodiumMg ?? 0;
+    acc.alcoholG += values.alcoholG ?? 0;
+    acc.caffeineMg += values.caffeineMg ?? 0;
+    acc.thcMg += values.thcMg ?? 0;
+    acc.cbdMg += values.cbdMg ?? 0;
+    acc.amphetamineMg += values.amphetamineMg ?? 0;
     acc.potassiumMg += values.potassiumMg ?? 0;
     acc.magnesiumMg += values.magnesiumMg ?? 0;
     acc.calciumMg += values.calciumMg ?? 0;
@@ -461,6 +510,11 @@ function computeSelectedTotals(items: ReceiptTrackerItem[]): Totals {
     acc.sugarG += values.sugarG ?? 0;
     acc.fiberG += values.fiberG ?? 0;
     acc.sodiumMg += values.sodiumMg ?? 0;
+    acc.alcoholG += values.alcoholG ?? 0;
+    acc.caffeineMg += values.caffeineMg ?? 0;
+    acc.thcMg += values.thcMg ?? 0;
+    acc.cbdMg += values.cbdMg ?? 0;
+    acc.amphetamineMg += values.amphetamineMg ?? 0;
     acc.potassiumMg += values.potassiumMg ?? 0;
     acc.magnesiumMg += values.magnesiumMg ?? 0;
     acc.calciumMg += values.calciumMg ?? 0;
@@ -521,6 +575,11 @@ function addScaledNutrients(
   totals.sugarG += (values.sugarG ?? 0) * factor;
   totals.fiberG += (values.fiberG ?? 0) * factor;
   totals.sodiumMg += (values.sodiumMg ?? 0) * factor;
+  totals.alcoholG += (values.alcoholG ?? 0) * factor;
+  totals.caffeineMg += (values.caffeineMg ?? 0) * factor;
+  totals.thcMg += (values.thcMg ?? 0) * factor;
+  totals.cbdMg += (values.cbdMg ?? 0) * factor;
+  totals.amphetamineMg += (values.amphetamineMg ?? 0) * factor;
   totals.potassiumMg += (values.potassiumMg ?? 0) * factor;
   totals.magnesiumMg += (values.magnesiumMg ?? 0) * factor;
   totals.calciumMg += (values.calciumMg ?? 0) * factor;
@@ -566,6 +625,11 @@ function computeLogTotals(logs: ReceiptConsumptionLog[], itemsById: Map<number, 
     acc.sugarG += totals.sugarG;
     acc.fiberG += totals.fiberG;
     acc.sodiumMg += totals.sodiumMg;
+    acc.alcoholG += totals.alcoholG;
+    acc.caffeineMg += totals.caffeineMg;
+    acc.thcMg += totals.thcMg;
+    acc.cbdMg += totals.cbdMg;
+    acc.amphetamineMg += totals.amphetamineMg;
     acc.potassiumMg += totals.potassiumMg;
     acc.magnesiumMg += totals.magnesiumMg;
     acc.calciumMg += totals.calciumMg;
@@ -589,6 +653,11 @@ function scaleTotals(totals: Totals, divisor: number | null): Totals {
     sugarG: totals.sugarG / divisor,
     fiberG: totals.fiberG / divisor,
     sodiumMg: totals.sodiumMg / divisor,
+    alcoholG: totals.alcoholG / divisor,
+    caffeineMg: totals.caffeineMg / divisor,
+    thcMg: totals.thcMg / divisor,
+    cbdMg: totals.cbdMg / divisor,
+    amphetamineMg: totals.amphetamineMg / divisor,
     potassiumMg: totals.potassiumMg / divisor,
     magnesiumMg: totals.magnesiumMg / divisor,
     calciumMg: totals.calciumMg / divisor,
@@ -621,11 +690,29 @@ function rateLabel(mode: RateMode) {
   return labels[mode];
 }
 
-function SummaryCard({ label, value, sub }: { label: string; value: string; sub?: ReactNode }) {
+function SummaryCard({
+  label,
+  value,
+  sub,
+  sticker,
+}: {
+  label: string;
+  value: string;
+  sub?: ReactNode;
+  sticker?: string;
+}) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className="mt-1 text-xl font-semibold">{value}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-xs text-zinc-500">{label}</div>
+          <div className="mt-1 text-xl font-semibold">{value}</div>
+        </div>
+        {sticker ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={sticker} alt="" className="h-8 w-8 shrink-0 object-contain" loading="lazy" />
+        ) : null}
+      </div>
       {sub ? <div className="mt-1 min-w-0 text-xs text-zinc-500">{sub}</div> : null}
     </div>
   );
@@ -638,6 +725,7 @@ function NutrientCard({
   dv,
   digits = 0,
   signalMode = "goal",
+  sticker,
 }: {
   label: string;
   value: number | null | undefined;
@@ -645,12 +733,14 @@ function NutrientCard({
   dv?: number;
   digits?: number;
   signalMode?: TargetSignalMode;
+  sticker?: string;
 }) {
   const display = value == null ? "-" : `${formatNumber(value, digits)}${unit}`;
   return (
     <SummaryCard
       label={label}
       value={display}
+      sticker={sticker}
       sub={dv ? <TargetSignal value={value} dailyValue={dv} mode={signalMode} /> : undefined}
     />
   );
@@ -692,6 +782,13 @@ export function ReceiptNutritionTracker({
   const [logUnit, setLogUnit] = useState<LogUnit>("item");
   const [logAt, setLogAt] = useState(nowForDateTimeInput());
   const [logNote, setLogNote] = useState("");
+  const [customType, setCustomType] = useState<CustomEntryType>("caffeine");
+  const [customName, setCustomName] = useState("Coffee / tea");
+  const [customCaffeineMg, setCustomCaffeineMg] = useState(95);
+  const [customAlcoholG, setCustomAlcoholG] = useState(0);
+  const [customThcMg, setCustomThcMg] = useState(0);
+  const [customCbdMg, setCustomCbdMg] = useState(0);
+  const [customAmphetamineMg, setCustomAmphetamineMg] = useState(0);
   const [outlineWidth, setOutlineWidth] = useState(250);
   const [detailsWidth, setDetailsWidth] = useState(370);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
@@ -830,6 +927,40 @@ export function ReceiptNutritionTracker({
     }
   }
 
+  async function addCustomEntry() {
+    const trimmedName = customName.trim();
+    if (!trimmedName) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/items`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: trimmedName,
+          entryType: customType,
+          consumedAt: logAt,
+          caffeineMg: customCaffeineMg,
+          alcoholG: customAlcoholG,
+          thcMg: customThcMg,
+          cbdMg: customCbdMg,
+          amphetamineMg: customAmphetamineMg,
+          note: logNote,
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        item: ReceiptTrackerItem;
+        log: ReceiptConsumptionLog;
+      };
+      setItems((current) => [...current, data.item]);
+      setLogs((current) => [...current, data.log].sort((a, b) => a.consumedAt.localeCompare(b.consumedAt)));
+      setSelectedIds(new Set([data.item.id]));
+      setLogNote("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteLog(logId: number) {
     setSaving(true);
     const previous = logs;
@@ -946,6 +1077,7 @@ export function ReceiptNutritionTracker({
               <th className="px-2 py-2 font-medium">Macros</th>
               <th className="px-2 py-2 font-medium">Sugar & fiber</th>
               <th className="px-2 py-2 font-medium">Electrolytes</th>
+              <th className="px-2 py-2 font-medium">Actives</th>
               <th className="px-2 py-2 font-medium">Source</th>
             </tr>
           </thead>
@@ -1085,6 +1217,13 @@ export function ReceiptNutritionTracker({
                       Ca {formatMg(values.calciumMg)} ({percentDv(values.calciumMg, DAILY_VALUES.calciumMg)})
                     </div>
                   </td>
+                  <td className="px-2 py-1.5 align-top text-[11px] text-zinc-600 dark:text-zinc-400">
+                    Caff {formatMg(values.caffeineMg)}
+                    <div className="mt-0.5 text-zinc-500">Alc {formatNumber(values.alcoholG, 1)}g</div>
+                    <div className="mt-0.5 text-zinc-500">
+                      THC {formatMg(values.thcMg)} · Rx {formatMg(values.amphetamineMg)}
+                    </div>
+                  </td>
                   <td className="px-2 py-1.5 align-top text-[11px]">
                     <span
                       className={
@@ -1122,6 +1261,9 @@ export function ReceiptNutritionTracker({
                 Salt {formatNumber(sodiumToSaltG(tableTotals.sodiumMg), 1)}g · K{" "}
                 {formatMg(tableTotals.potassiumMg)}
               </td>
+              <td className="px-2 py-2">
+                Caff {formatMg(tableTotals.caffeineMg)} · Alc {formatNumber(tableTotals.alcoholG, 1)}g
+              </td>
               <td></td>
             </tr>
           </tfoot>
@@ -1132,7 +1274,7 @@ export function ReceiptNutritionTracker({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-10">
         <SummaryCard
           label="Tracked rows"
           value={`${trackedTotals.itemCount}`}
@@ -1145,18 +1287,21 @@ export function ReceiptNutritionTracker({
           unit=""
           dv={DAILY_VALUES.calories}
           signalMode="energy"
+          sticker={NUTRIENT_STICKERS.calories}
         />
         <NutrientCard
           label="Daily protein / person"
           value={dailyPersonTotals.proteinG}
           unit="g"
           dv={DAILY_VALUES.proteinG}
+          sticker={NUTRIENT_STICKERS.protein}
         />
         <NutrientCard
           label="Daily carbs / person"
           value={dailyPersonTotals.carbsG}
           unit="g"
           dv={DAILY_VALUES.carbsG}
+          sticker={NUTRIENT_STICKERS.carbs}
         />
         <NutrientCard
           label="Daily fat / person"
@@ -1164,6 +1309,7 @@ export function ReceiptNutritionTracker({
           unit="g"
           dv={DAILY_VALUES.fatG}
           signalMode="limit"
+          sticker={NUTRIENT_STICKERS.fat}
         />
         <NutrientCard
           label="Daily sodium / person"
@@ -1171,12 +1317,27 @@ export function ReceiptNutritionTracker({
           unit="mg"
           dv={DAILY_VALUES.sodiumMg}
           signalMode="limit"
+          sticker={NUTRIENT_STICKERS.sodium}
         />
         <NutrientCard
           label="Daily potassium / person"
           value={dailyPersonTotals.potassiumMg}
           unit="mg"
           dv={DAILY_VALUES.potassiumMg}
+          sticker={NUTRIENT_STICKERS.potassium}
+        />
+        <NutrientCard
+          label="Daily caffeine / person"
+          value={dailyPersonTotals.caffeineMg}
+          unit="mg"
+          sticker={NUTRIENT_STICKERS.caffeine}
+        />
+        <NutrientCard
+          label="Daily alcohol / person"
+          value={dailyPersonTotals.alcoholG}
+          unit="g"
+          digits={1}
+          sticker={NUTRIENT_STICKERS.alcohol}
         />
       </div>
       <div className="mt-2 text-xs text-zinc-500">
@@ -1631,6 +1792,99 @@ export function ReceiptNutritionTracker({
               </div>
             ) : null}
           </div>
+          <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div className="text-sm font-semibold">Add custom entry</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              Adds caffeine, alcohol, cannabis, or medication-style rows to this receipt and logs them at the selected time.
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <label className="col-span-2 text-xs">
+                <span className="mb-1 block text-zinc-500">Type</span>
+                <select
+                  value={customType}
+                  onChange={(e) => setCustomType(e.target.value as CustomEntryType)}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                >
+                  {CUSTOM_ENTRY_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="col-span-2 text-xs">
+                <span className="mb-1 block text-zinc-500">Name</span>
+                <input
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  placeholder="Coffee, wine, edible, Adderall..."
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">Caffeine mg</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={customCaffeineMg}
+                  onChange={(e) => setCustomCaffeineMg(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">Alcohol g</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={customAlcoholG}
+                  onChange={(e) => setCustomAlcoholG(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">THC mg</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={customThcMg}
+                  onChange={(e) => setCustomThcMg(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">CBD mg</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={customCbdMg}
+                  onChange={(e) => setCustomCbdMg(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="col-span-2 text-xs">
+                <span className="mb-1 block text-zinc-500">Amphetamine mg</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={customAmphetamineMg}
+                  onChange={(e) => setCustomAmphetamineMg(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              disabled={saving || !customName.trim()}
+              onClick={addCustomEntry}
+              className="mt-3 w-full rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+            >
+              Add and log entry
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <NutrientCard
               label="Calories"
@@ -1638,6 +1892,7 @@ export function ReceiptNutritionTracker({
               unit=""
               dv={DAILY_VALUES.calories}
               signalMode="energy"
+              sticker={NUTRIENT_STICKERS.calories}
             />
             <SummaryCard label="Price" value={formatMoney(selectedScaledTotals.price)} />
             <NutrientCard
@@ -1645,37 +1900,79 @@ export function ReceiptNutritionTracker({
               value={selectedScaledTotals.proteinG}
               unit="g"
               dv={DAILY_VALUES.proteinG}
+              sticker={NUTRIENT_STICKERS.protein}
             />
-            <NutrientCard label="Carbs" value={selectedScaledTotals.carbsG} unit="g" dv={DAILY_VALUES.carbsG} />
+            <NutrientCard
+              label="Carbs"
+              value={selectedScaledTotals.carbsG}
+              unit="g"
+              dv={DAILY_VALUES.carbsG}
+              sticker={NUTRIENT_STICKERS.carbs}
+            />
             <NutrientCard
               label="Fat"
               value={selectedScaledTotals.fatG}
               unit="g"
               dv={DAILY_VALUES.fatG}
               signalMode="limit"
+              sticker={NUTRIENT_STICKERS.fat}
             />
-            <NutrientCard label="Fiber" value={selectedScaledTotals.fiberG} unit="g" dv={DAILY_VALUES.fiberG} />
+            <NutrientCard
+              label="Fiber"
+              value={selectedScaledTotals.fiberG}
+              unit="g"
+              dv={DAILY_VALUES.fiberG}
+              sticker={NUTRIENT_STICKERS.fiber}
+            />
             <SummaryCard
               label="Sugar"
               value={`${formatNumber(selectedScaledTotals.sugarG)}g`}
               sub="Total sugar has no personal target"
+              sticker={NUTRIENT_STICKERS.sugar}
             />
             <SummaryCard
               label="Salt"
               value={`${formatNumber(sodiumToSaltG(selectedScaledTotals.sodiumMg), 1)}g`}
               sub={<TargetSignal value={selectedScaledTotals.sodiumMg} dailyValue={DAILY_VALUES.sodiumMg} mode="limit" />}
+              sticker={NUTRIENT_STICKERS.sodium}
             />
             <NutrientCard
               label="Potassium"
               value={selectedScaledTotals.potassiumMg}
               unit="mg"
               dv={DAILY_VALUES.potassiumMg}
+              sticker={NUTRIENT_STICKERS.potassium}
             />
             <NutrientCard
               label="Calcium"
               value={selectedScaledTotals.calciumMg}
               unit="mg"
               dv={DAILY_VALUES.calciumMg}
+            />
+            <NutrientCard
+              label="Caffeine"
+              value={selectedScaledTotals.caffeineMg}
+              unit="mg"
+              sticker={NUTRIENT_STICKERS.caffeine}
+            />
+            <NutrientCard
+              label="Alcohol"
+              value={selectedScaledTotals.alcoholG}
+              unit="g"
+              digits={1}
+              sticker={NUTRIENT_STICKERS.alcohol}
+            />
+            <NutrientCard
+              label="THC"
+              value={selectedScaledTotals.thcMg}
+              unit="mg"
+              sticker={NUTRIENT_STICKERS.cannabis}
+            />
+            <NutrientCard
+              label="Amphetamine"
+              value={selectedScaledTotals.amphetamineMg}
+              unit="mg"
+              sticker={NUTRIENT_STICKERS.medication}
             />
           </div>
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
