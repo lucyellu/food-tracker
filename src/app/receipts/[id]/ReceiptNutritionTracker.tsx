@@ -695,14 +695,12 @@ function rateLabel(mode: RateMode) {
 function NutrientEmojiBadge({ sticker }: { sticker: NutrientSticker }) {
   return (
     <span
-      aria-hidden="true"
-      className="flex h-8 w-8 shrink-0 flex-col items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-lg shadow-sm dark:border-zinc-700 dark:bg-zinc-950"
+      aria-label={sticker.code}
+      className="grid h-8 w-8 shrink-0 place-items-center text-2xl leading-none drop-shadow-sm"
+      role="img"
       title={sticker.code}
     >
-      <span className="leading-none">{sticker.emoji}</span>
-      <span className="mt-[-1px] text-[7px] font-semibold uppercase leading-none text-zinc-500 dark:text-zinc-400">
-        {sticker.code}
-      </span>
+      {sticker.emoji}
     </span>
   );
 }

@@ -122,6 +122,12 @@ export default async function ReceiptDetailPage({
           >
             Read nutrition
           </Link>
+          <Link
+            href={`/receipts/${receiptId}/inventory`}
+            className="rounded-md border border-zinc-200 px-3 py-2 text-center text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+          >
+            Inventory lab
+          </Link>
           <EnrichNutritionButton receiptId={receiptId} />
           <EnrichProductsButton receiptId={receiptId} />
         </div>
