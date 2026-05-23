@@ -183,19 +183,21 @@ const LOG_UNITS: LogUnit[] = ["item", "serving", "g", "100g"];
 const CUSTOM_ENTRY_TYPES: CustomEntryType[] = ["caffeine", "alcohol", "cannabis", "medication", "other"];
 
 const NUTRIENT_STICKERS = {
-  calories: "/nutrients/calories.png",
-  protein: "/nutrients/protein.png",
-  carbs: "/nutrients/carbs.png",
-  fat: "/nutrients/fat.png",
-  fiber: "/nutrients/fiber.png",
-  sugar: "/nutrients/sugar.png",
-  sodium: "/nutrients/sodium.png",
-  potassium: "/nutrients/potassium.png",
-  caffeine: "/nutrients/caffeine.png",
-  alcohol: "/nutrients/alcohol.png",
-  cannabis: "/nutrients/cannabis.png",
-  medication: "/nutrients/medication.png",
+  calories: { emoji: "🔥", code: "cal" },
+  protein: { emoji: "🥚", code: "P" },
+  carbs: { emoji: "🍚", code: "C" },
+  fat: { emoji: "🧈", code: "F" },
+  fiber: { emoji: "🫘", code: "fiber" },
+  sugar: { emoji: "🍬", code: "sugar" },
+  sodium: { emoji: "🧂", code: "Na" },
+  potassium: { emoji: "🍌", code: "K" },
+  caffeine: { emoji: "☕", code: "caf" },
+  alcohol: { emoji: "🍷", code: "alc" },
+  cannabis: { emoji: "🌿", code: "THC" },
+  medication: { emoji: "💊", code: "Rx" },
 } as const;
+
+type NutrientSticker = (typeof NUTRIENT_STICKERS)[keyof typeof NUTRIENT_STICKERS];
 
 function formatMoney(n: number | null | undefined) {
   if (n == null) return "-";
@@ -690,6 +692,21 @@ function rateLabel(mode: RateMode) {
   return labels[mode];
 }
 
+function NutrientEmojiBadge({ sticker }: { sticker: NutrientSticker }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-8 w-8 shrink-0 flex-col items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 text-lg shadow-sm dark:border-zinc-700 dark:bg-zinc-950"
+      title={sticker.code}
+    >
+      <span className="leading-none">{sticker.emoji}</span>
+      <span className="mt-[-1px] text-[7px] font-semibold uppercase leading-none text-zinc-500 dark:text-zinc-400">
+        {sticker.code}
+      </span>
+    </span>
+  );
+}
+
 function SummaryCard({
   label,
   value,
@@ -699,7 +716,7 @@ function SummaryCard({
   label: string;
   value: string;
   sub?: ReactNode;
-  sticker?: string;
+  sticker?: NutrientSticker;
 }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
@@ -708,10 +725,7 @@ function SummaryCard({
           <div className="text-xs text-zinc-500">{label}</div>
           <div className="mt-1 text-xl font-semibold">{value}</div>
         </div>
-        {sticker ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={sticker} alt="" className="h-8 w-8 shrink-0 object-contain" loading="lazy" />
-        ) : null}
+        {sticker ? <NutrientEmojiBadge sticker={sticker} /> : null}
       </div>
       {sub ? <div className="mt-1 min-w-0 text-xs text-zinc-500">{sub}</div> : null}
     </div>
@@ -733,7 +747,7 @@ function NutrientCard({
   dv?: number;
   digits?: number;
   signalMode?: TargetSignalMode;
-  sticker?: string;
+  sticker?: NutrientSticker;
 }) {
   const display = value == null ? "-" : `${formatNumber(value, digits)}${unit}`;
   return (
