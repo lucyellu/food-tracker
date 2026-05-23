@@ -618,7 +618,9 @@ export function InventoryClone({
   }
 
   async function consumeVisible() {
-    const eligible = visibleConsumableItems;
+    const eligible = visibleConsumableItems
+      .map((item) => ({ item, stack: stacks.get(item.id) }))
+      .filter((row): row is { item: ReceiptTrackerItem; stack: StackInfo } => Boolean(row.stack && row.stack.left > 0));
     if (eligible.length === 0) return;
     setBusyId(-1);
     setMessage(null);
@@ -626,19 +628,18 @@ export function InventoryClone({
     const previousItems = items;
     try {
       const created: ReceiptConsumptionLog[] = [];
-      for (const item of eligible) {
-        const stack = stacks.get(item.id);
-        if (!stack || stack.left <= 0) continue;
+      for (const { item, stack } of eligible) {
         const kind: ConsumeKind = isDrinkItem(item) ? "drank" : "eaten";
+        const amount = stack.left;
         const res = await fetch(`/api/receipts/${receipt.id}/consumption`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             lineItemId: item.id,
             consumedAt: logAt,
-            amount: 1,
+            amount,
             unit: "serving",
-            note: `${kind}: ${stack.clickLabel}`,
+            note: `${kind}: ${formatNumber(amount, amount < 10 ? 1 : 0)} ${stack.unitLabel}${amount === 1 ? "" : "s"}`,
           }),
         });
         if (!res.ok) throw new Error("bulk consume failed");
@@ -646,7 +647,7 @@ export function InventoryClone({
         created.push(data.log);
       }
 
-      const finished = eligible.filter((item) => (stacks.get(item.id)?.left ?? 0) <= 1);
+      const finished = eligible.map(({ item }) => item);
       setLogs((current) => [...current, ...created].sort((a, b) => a.consumedAt.localeCompare(b.consumedAt)));
       if (finished.length > 0) {
         const finishedIds = finished.map((item) => item.id);
