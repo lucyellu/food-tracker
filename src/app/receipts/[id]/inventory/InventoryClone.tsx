@@ -13,6 +13,9 @@ import type {
 
 type ConsumptionStatus = ReceiptTrackerItem["consumptionStatus"];
 type ShelfKind = "available" | "pantry" | "fridge" | "consumed" | "disposed";
+type SortMode = "name" | "left" | "calories" | "carbs" | "protein" | "sodium" | "recent";
+type InventoryFilter = "active" | "all" | "counter" | "stored" | "fridge" | "pantry" | "food" | "drink";
+type ConsumeKind = "eaten" | "drank";
 
 export type InventoryReceipt = {
   id: number;
@@ -64,7 +67,7 @@ const SHELF_META: Record<
     railClassName: "from-cyan-200 to-sky-500 dark:from-cyan-900 dark:to-sky-950",
   },
   consumed: {
-    title: "Consumed",
+    title: "Eaten / drank",
     empty: "No servings logged.",
     className: "border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20",
     railClassName: "from-emerald-300 to-lime-500 dark:from-emerald-900 dark:to-lime-950",
@@ -130,6 +133,23 @@ function countFromName(name: string) {
 
 function categoryEmoji(name: string) {
   return CATEGORY_EMOJI.find(([pattern]) => pattern.test(name))?.[1] ?? "🍽️";
+}
+
+function isDrinkItem(item: ReceiptTrackerItem) {
+  return /tea|juice|drink|coconut|aloe|coffee|milk|water|soda|beverage|latte|caffeine/i.test(
+    `${item.rawName} ${item.unit}`,
+  );
+}
+
+function autoStorageStatus(item: ReceiptTrackerItem): ConsumptionStatus {
+  if (
+    /fresh|frozen|egg|pork|beef|chicken|duck|fish|salmon|eel|basa|seafood|mussel|shrimp|meat|rib|kidney|tripe|bung|shank|cabbage|watercress|onion|eggplant|squash|melon|mushroom|apple|fruit/i.test(
+      item.rawName,
+    )
+  ) {
+    return "fridge";
+  }
+  return "pantry";
 }
 
 function produceServing(name: string) {
@@ -216,24 +236,79 @@ function compactName(name: string) {
   return name.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function nutrientValue(item: ReceiptTrackerItem, sort: SortMode) {
+  if (sort === "calories") return item.nutrition?.calories ?? 0;
+  if (sort === "carbs") return item.nutrition?.carbsG ?? 0;
+  if (sort === "protein") return item.nutrition?.proteinG ?? 0;
+  if (sort === "sodium") return item.nutrition?.sodiumMg ?? 0;
+  return 0;
+}
+
+function latestItemLog(logs: ReceiptConsumptionLog[], itemId: number) {
+  return logs
+    .filter((log) => log.lineItemId === itemId)
+    .sort((a, b) => b.consumedAt.localeCompare(a.consumedAt) || b.id - a.id)[0];
+}
+
+function filterItem(item: ReceiptTrackerItem, stack: StackInfo | undefined, filter: InventoryFilter, search: string) {
+  if (!stack) return false;
+  const query = search.trim().toLowerCase();
+  if (query && !`${item.rawName} ${item.normalizedName ?? ""}`.toLowerCase().includes(query)) return false;
+  if (filter === "all") return true;
+  if (filter === "active") return !["consumed", "disposed", "refunded", "unavailable"].includes(item.consumptionStatus) && stack.left > 0;
+  if (filter === "counter") return shelfForItem(item, stack) === "available";
+  if (filter === "stored") return item.consumptionStatus === "fridge" || item.consumptionStatus === "pantry";
+  if (filter === "fridge") return item.consumptionStatus === "fridge";
+  if (filter === "pantry") return item.consumptionStatus === "pantry";
+  if (filter === "drink") return isDrinkItem(item);
+  if (filter === "food") return !isDrinkItem(item);
+  return true;
+}
+
+function sortItems(
+  items: ReceiptTrackerItem[],
+  stacks: Map<number, StackInfo>,
+  logs: ReceiptConsumptionLog[],
+  sort: SortMode,
+) {
+  return [...items].sort((a, b) => {
+    if (sort === "name") return compactName(a.rawName).localeCompare(compactName(b.rawName));
+    if (sort === "left") return (stacks.get(b.id)?.left ?? 0) - (stacks.get(a.id)?.left ?? 0);
+    if (sort === "recent") {
+      const aLog = latestItemLog(logs, a.id)?.consumedAt ?? a.statusDate ?? "";
+      const bLog = latestItemLog(logs, b.id)?.consumedAt ?? b.statusDate ?? "";
+      return bLog.localeCompare(aLog);
+    }
+    return nutrientValue(b, sort) - nutrientValue(a, sort);
+  });
+}
+
 function StackCard({
   item,
   stack,
   busy,
   onConsume,
   onUndo,
-  onMove,
+  onStore,
+  onToss,
 }: {
   item: ReceiptTrackerItem;
   stack: StackInfo;
   busy: boolean;
-  onConsume: () => void;
+  onConsume: (kind: ConsumeKind) => void;
   onUndo: () => void;
-  onMove: (status: ConsumptionStatus) => void;
+  onStore: () => void;
+  onToss: () => void;
 }) {
   const canConsume = stack.left > 0 && !["disposed", "refunded", "unavailable"].includes(item.consumptionStatus);
   const image = item.productImageUrl;
   const emoji = categoryEmoji(item.rawName);
+  const consumeKind: ConsumeKind = isDrinkItem(item) ? "drank" : "eaten";
+  const consumeLabel = consumeKind === "drank" ? "Drink" : "Eat";
+  const nutrientSummary = [
+    item.nutrition?.calories == null ? null : `${formatNumber(item.nutrition.calories)} cal`,
+    item.nutrition?.carbsG == null ? null : `${formatNumber(item.nutrition.carbsG)}g C`,
+  ].filter(Boolean);
 
   function handleContextMenu(event: MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -244,52 +319,57 @@ function StackCard({
     <article className="group relative min-w-0 rounded-md border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
       <button
         type="button"
-        onClick={onConsume}
+        onClick={() => onConsume(consumeKind)}
         onContextMenu={handleContextMenu}
         disabled={busy || !canConsume}
-        className="block w-full min-w-0 p-2 text-left disabled:cursor-not-allowed disabled:opacity-55"
+        className="grid w-full min-w-0 grid-cols-[46px_minmax(0,1fr)] gap-2 p-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55"
         title={`${compactName(item.rawName)} · ${stack.clickLabel}`}
       >
-        <span className="absolute right-1.5 top-1.5 z-10 rounded-full bg-zinc-950 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow dark:bg-zinc-100 dark:text-zinc-950">
+        <span className="absolute right-1 top-1 z-10 rounded-full bg-zinc-950 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow dark:bg-zinc-100 dark:text-zinc-950">
           {formatNumber(stack.left, stack.left < 10 ? 1 : 0)}
         </span>
-        <span className="relative grid aspect-square place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-950">
+        <span className="relative grid h-12 w-12 place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-950">
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt="" className="h-full w-full object-contain p-1" loading="lazy" />
+            <img src={image} alt="" className="h-full w-full object-cover" loading="lazy" />
           ) : (
-            <span className="text-4xl leading-none drop-shadow-sm">{emoji}</span>
+            <span className="text-3xl leading-none drop-shadow-sm">{emoji}</span>
           )}
         </span>
-        <span className="mt-2 block truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-          {compactName(item.rawName)}
-        </span>
-        <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
-          {stack.clickLabel} · {formatNumber(stack.consumed, 1)} used
+        <span className="min-w-0 pt-0.5">
+          <span className="block truncate text-[11px] font-semibold leading-tight text-zinc-900 dark:text-zinc-100">
+            {compactName(item.rawName)}
+          </span>
+          <span className="mt-0.5 block truncate text-[10px] text-zinc-500">
+            {stack.clickLabel} · {nutrientSummary.join(" · ") || "no totals"}
+          </span>
+          <span className="mt-1 inline-flex rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+            {consumeLabel}
+          </span>
         </span>
       </button>
       <div className="grid grid-cols-3 border-t border-zinc-100 text-[10px] dark:border-zinc-800">
         <button
           type="button"
-          onClick={() => onMove("pantry")}
+          onClick={onStore}
           disabled={busy}
-          className="px-1 py-1.5 text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
+          className="px-1 py-1 text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
         >
-          Pantry
+          Store
         </button>
         <button
           type="button"
-          onClick={() => onMove("fridge")}
+          onClick={onUndo}
           disabled={busy}
-          className="border-x border-zinc-100 px-1 py-1.5 text-cyan-700 hover:bg-cyan-50 disabled:opacity-50 dark:border-zinc-800 dark:text-cyan-300 dark:hover:bg-cyan-950/40"
+          className="border-x border-zinc-100 px-1 py-1 text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
-          Fridge
+          Undo
         </button>
         <button
           type="button"
-          onClick={() => onMove("disposed")}
+          onClick={onToss}
           disabled={busy}
-          className="px-1 py-1.5 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
+          className="px-1 py-1 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
         >
           Toss
         </button>
@@ -305,15 +385,17 @@ function Shelf({
   busyId,
   onConsume,
   onUndo,
-  onMove,
+  onStore,
+  onToss,
 }: {
   kind: ShelfKind;
   items: ReceiptTrackerItem[];
   stacks: Map<number, StackInfo>;
   busyId: number | null;
-  onConsume: (item: ReceiptTrackerItem) => void;
+  onConsume: (item: ReceiptTrackerItem, kind: ConsumeKind) => void;
   onUndo: (item: ReceiptTrackerItem) => void;
-  onMove: (item: ReceiptTrackerItem, status: ConsumptionStatus) => void;
+  onStore: (item: ReceiptTrackerItem) => void;
+  onToss: (item: ReceiptTrackerItem) => void;
 }) {
   const meta = SHELF_META[kind];
   return (
@@ -325,7 +407,7 @@ function Shelf({
           {items.length}
         </span>
       </div>
-      <div className="grid min-h-52 grid-cols-2 gap-2 p-3 sm:grid-cols-3 xl:grid-cols-4">
+      <div className="grid min-h-36 grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2 p-2">
         {items.length === 0 ? (
           <div className="col-span-full grid min-h-32 place-items-center rounded-md border border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700">
             {meta.empty}
@@ -339,10 +421,11 @@ function Shelf({
                 key={item.id}
                 item={item}
                 stack={stack}
-                busy={busyId === item.id}
-                onConsume={() => onConsume(item)}
+                busy={busyId === item.id || busyId === -1}
+                onConsume={(consumeKind) => onConsume(item, consumeKind)}
                 onUndo={() => onUndo(item)}
-                onMove={(status) => onMove(item, status)}
+                onStore={() => onStore(item)}
+                onToss={() => onToss(item)}
               />
             );
           })
@@ -366,6 +449,9 @@ export function InventoryClone({
   const [logAt, setLogAt] = useState(todayDateTimeInput());
   const [busyId, setBusyId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [filter, setFilter] = useState<InventoryFilter>("active");
+  const [sort, setSort] = useState<SortMode>("left");
+  const [search, setSearch] = useState("");
 
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const stacks = useMemo(() => {
@@ -385,14 +471,26 @@ export function InventoryClone({
       if (item.consumptionStatus === "refunded" || item.consumptionStatus === "unavailable") continue;
       const stack = stacks.get(item.id);
       if (!stack) continue;
+      if (!filterItem(item, stack, filter, search)) continue;
       next[shelfForItem(item, stack)].push(item);
     }
+    for (const key of Object.keys(next) as ShelfKind[]) {
+      next[key] = sortItems(next[key], stacks, logs, sort);
+    }
     return next;
-  }, [items, stacks]);
+  }, [items, stacks, filter, search, logs, sort]);
   const calendarRows = useMemo(() => groupLogsByDay(logs, itemsById), [logs, itemsById]);
   const totalLeft = useMemo(
     () => [...stacks.values()].reduce((sum, stack) => sum + stack.left, 0),
     [stacks],
+  );
+  const counterItems = useMemo(
+    () =>
+      items.filter((item) => {
+        const stack = stacks.get(item.id);
+        return stack && shelfForItem(item, stack) === "available";
+      }),
+    [items, stacks],
   );
 
   async function setStatus(item: ReceiptTrackerItem, status: ConsumptionStatus) {
@@ -418,7 +516,50 @@ export function InventoryClone({
     }
   }
 
-  async function consumeOne(item: ReceiptTrackerItem) {
+  async function setStatuses(rows: ReceiptTrackerItem[], statusForItem: (item: ReceiptTrackerItem) => ConsumptionStatus) {
+    const eligible = rows.filter((item) => !["consumed", "disposed", "refunded", "unavailable"].includes(item.consumptionStatus));
+    if (eligible.length === 0) return;
+    setBusyId(-1);
+    setMessage(null);
+    const previous = items;
+    const nextById = new Map(eligible.map((item) => [item.id, statusForItem(item)]));
+    setItems((current) =>
+      current.map((row) => {
+        const status = nextById.get(row.id);
+        return status ? { ...row, consumptionStatus: status, statusDate: null } : row;
+      }),
+    );
+    try {
+      const grouped = new Map<ConsumptionStatus, number[]>();
+      for (const item of eligible) {
+        const status = statusForItem(item);
+        grouped.set(status, [...(grouped.get(status) ?? []), item.id]);
+      }
+      for (const [status, itemIds] of grouped) {
+        const res = await fetch(`/api/receipts/${receipt.id}/items`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ itemIds, status, statusDate: null }),
+        });
+        if (!res.ok) throw new Error("bulk status update failed");
+      }
+    } catch {
+      setItems(previous);
+      setMessage("Could not auto-store those items.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function autoStore(item: ReceiptTrackerItem) {
+    await setStatus(item, autoStorageStatus(item));
+  }
+
+  async function autoStoreCounter() {
+    await setStatuses(counterItems, autoStorageStatus);
+  }
+
+  async function consumeOne(item: ReceiptTrackerItem, kind: ConsumeKind) {
     const stack = stacks.get(item.id);
     if (!stack || stack.left <= 0) return;
     setBusyId(item.id);
@@ -432,7 +573,7 @@ export function InventoryClone({
           consumedAt: logAt,
           amount: 1,
           unit: "serving",
-          note: stack.clickLabel,
+          note: `${kind}: ${stack.clickLabel}`,
         }),
       });
       if (!res.ok) throw new Error("consume failed");
@@ -479,10 +620,55 @@ export function InventoryClone({
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-4">
-        <div className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+        <div className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 xl:grid-cols-[minmax(150px,190px)_minmax(0,1fr)_auto_auto_auto] xl:items-end">
           <div>
             <div className="text-xs uppercase tracking-wide text-zinc-500">Inventory clone</div>
             <div className="mt-1 text-lg font-semibold">{formatNumber(totalLeft, 1)} servings left</div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="grid gap-1 text-xs text-zinc-500">
+              Find
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="apple, rice, tea"
+                className="min-w-0 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              />
+            </label>
+            <label className="grid gap-1 text-xs text-zinc-500">
+              Show
+              <select
+                value={filter}
+                onChange={(event) => setFilter(event.target.value as InventoryFilter)}
+                className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              >
+                <option value="active">Active</option>
+                <option value="all">All</option>
+                <option value="counter">Counter</option>
+                <option value="stored">Stored</option>
+                <option value="fridge">Fridge</option>
+                <option value="pantry">Pantry</option>
+                <option value="food">Food</option>
+                <option value="drink">Drink</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs text-zinc-500">
+              Sort
+              <select
+                value={sort}
+                onChange={(event) => setSort(event.target.value as SortMode)}
+                className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              >
+                <option value="left">Servings left</option>
+                <option value="recent">Recent use/date</option>
+                <option value="carbs">Carbs</option>
+                <option value="calories">Calories</option>
+                <option value="protein">Protein</option>
+                <option value="sodium">Sodium</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
           </div>
           <label className="grid gap-1 text-xs text-zinc-500">
             Date and time
@@ -499,6 +685,14 @@ export function InventoryClone({
           >
             Table
           </Link>
+          <button
+            type="button"
+            onClick={autoStoreCounter}
+            disabled={busyId != null || counterItems.length === 0}
+            className="rounded-md border border-amber-300 px-3 py-2 text-center text-sm font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
+          >
+            Store counter
+          </button>
         </div>
 
         {message ? (
@@ -515,7 +709,8 @@ export function InventoryClone({
             busyId={busyId}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onMove={setStatus}
+            onStore={autoStore}
+            onToss={(item) => setStatus(item, "disposed")}
           />
           <Shelf
             kind="pantry"
@@ -524,7 +719,8 @@ export function InventoryClone({
             busyId={busyId}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onMove={setStatus}
+            onStore={autoStore}
+            onToss={(item) => setStatus(item, "disposed")}
           />
         </div>
 
@@ -535,7 +731,8 @@ export function InventoryClone({
           busyId={busyId}
           onConsume={consumeOne}
           onUndo={undoLatest}
-          onMove={setStatus}
+          onStore={autoStore}
+          onToss={(item) => setStatus(item, "disposed")}
         />
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -546,7 +743,8 @@ export function InventoryClone({
             busyId={busyId}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onMove={setStatus}
+            onStore={autoStore}
+            onToss={(item) => setStatus(item, "disposed")}
           />
           <Shelf
             kind="disposed"
@@ -555,7 +753,8 @@ export function InventoryClone({
             busyId={busyId}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onMove={setStatus}
+            onStore={autoStore}
+            onToss={(item) => setStatus(item, "disposed")}
           />
         </div>
       </div>
@@ -587,6 +786,7 @@ export function InventoryClone({
                         <div className="text-zinc-500">
                           {log.consumedAt.slice(11, 16)} · {formatNumber(log.amount, 1)} {log.unit}
                         </div>
+                        {log.note ? <div className="truncate text-[11px] text-zinc-500">{log.note}</div> : null}
                       </div>
                       <button
                         type="button"
