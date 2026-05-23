@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  type MouseEvent,
   useMemo,
   useState,
 } from "react";
@@ -289,46 +288,59 @@ function StackCard({
   busy,
   onConsume,
   onUndo,
-  onStore,
   onToss,
+  onRestore,
 }: {
   item: ReceiptTrackerItem;
   stack: StackInfo;
   busy: boolean;
   onConsume: (kind: ConsumeKind) => void;
   onUndo: () => void;
-  onStore: () => void;
   onToss: () => void;
+  onRestore: () => void;
 }) {
   const canConsume = stack.left > 0 && !["disposed", "refunded", "unavailable"].includes(item.consumptionStatus);
+  const isDisposed = item.consumptionStatus === "disposed";
+  const isConsumed = item.consumptionStatus === "consumed" || stack.left <= 0;
+  const hasConsumed = stack.consumed > 0;
   const image = item.productImageUrl;
   const emoji = categoryEmoji(item.rawName);
   const consumeKind: ConsumeKind = isDrinkItem(item) ? "drank" : "eaten";
   const consumeLabel = consumeKind === "drank" ? "Drink" : "Eat";
+  const primaryLabel = isDisposed ? "Restore" : isConsumed ? "Uneat" : consumeLabel;
+  const secondaryLabel = isDisposed || (hasConsumed && !isConsumed) ? "Uneat" : "Discard";
   const nutrientSummary = [
     item.nutrition?.calories == null ? null : `${formatNumber(item.nutrition.calories)} cal`,
     item.nutrition?.carbsG == null ? null : `${formatNumber(item.nutrition.carbsG)}g C`,
   ].filter(Boolean);
 
-  function handleContextMenu(event: MouseEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    onUndo();
+  function handlePrimaryAction() {
+    if (isDisposed) {
+      onRestore();
+      return;
+    }
+    if (isConsumed) {
+      onUndo();
+      return;
+    }
+    onConsume(consumeKind);
+  }
+
+  function handleSecondaryAction() {
+    if (isDisposed || (hasConsumed && !isConsumed)) {
+      onUndo();
+      return;
+    }
+    onToss();
   }
 
   return (
     <article className="group relative min-w-0 rounded-md border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-      <button
-        type="button"
-        onClick={() => onConsume(consumeKind)}
-        onContextMenu={handleContextMenu}
-        disabled={busy || !canConsume}
-        className="grid w-full min-w-0 grid-cols-[46px_minmax(0,1fr)] gap-2 p-1.5 text-left disabled:cursor-not-allowed disabled:opacity-55"
-        title={`${compactName(item.rawName)} · ${stack.clickLabel}`}
-      >
+      <div className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] gap-1.5 p-1.5" title={`${compactName(item.rawName)} · ${stack.clickLabel}`}>
         <span className="absolute right-1 top-1 z-10 rounded-full bg-zinc-950 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow dark:bg-zinc-100 dark:text-zinc-950">
           {formatNumber(stack.left, stack.left < 10 ? 1 : 0)}
         </span>
-        <span className="relative grid h-12 w-12 place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-950">
+        <span className="relative grid h-11 w-11 place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-950">
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={image} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -343,35 +355,24 @@ function StackCard({
           <span className="mt-0.5 block truncate text-[10px] text-zinc-500">
             {stack.clickLabel} · {nutrientSummary.join(" · ") || "no totals"}
           </span>
-          <span className="mt-1 inline-flex rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
-            {consumeLabel}
-          </span>
         </span>
-      </button>
-      <div className="grid grid-cols-3 border-t border-zinc-100 text-[10px] dark:border-zinc-800">
+      </div>
+      <div className="grid grid-cols-2 border-t border-zinc-100 text-[10px] dark:border-zinc-800">
         <button
           type="button"
-          onClick={onStore}
-          disabled={busy}
-          className="px-1 py-1 text-amber-700 hover:bg-amber-50 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
+          onClick={handlePrimaryAction}
+          disabled={busy || (!canConsume && !isConsumed && !isDisposed)}
+          className="px-1 py-1 font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
         >
-          Store
+          {primaryLabel}
         </button>
         <button
           type="button"
-          onClick={onUndo}
+          onClick={handleSecondaryAction}
           disabled={busy}
-          className="border-x border-zinc-100 px-1 py-1 text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="border-l border-zinc-100 px-1 py-1 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-zinc-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
         >
-          Undo
-        </button>
-        <button
-          type="button"
-          onClick={onToss}
-          disabled={busy}
-          className="px-1 py-1 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-300 dark:hover:bg-rose-950/40"
-        >
-          Toss
+          {secondaryLabel}
         </button>
       </div>
     </article>
@@ -383,19 +384,23 @@ function Shelf({
   items,
   stacks,
   busyId,
+  collapsed,
   onConsume,
   onUndo,
-  onStore,
   onToss,
+  onRestore,
+  onToggle,
 }: {
   kind: ShelfKind;
   items: ReceiptTrackerItem[];
   stacks: Map<number, StackInfo>;
   busyId: number | null;
+  collapsed: boolean;
   onConsume: (item: ReceiptTrackerItem, kind: ConsumeKind) => void;
   onUndo: (item: ReceiptTrackerItem) => void;
-  onStore: (item: ReceiptTrackerItem) => void;
   onToss: (item: ReceiptTrackerItem) => void;
+  onRestore: (item: ReceiptTrackerItem) => void;
+  onToggle: () => void;
 }) {
   const meta = SHELF_META[kind];
   return (
@@ -403,13 +408,22 @@ function Shelf({
       <div className={`h-2 bg-gradient-to-r ${meta.railClassName}`} />
       <div className="flex items-center justify-between gap-3 border-b border-black/5 px-3 py-2 dark:border-white/10">
         <h2 className="text-sm font-semibold">{meta.title}</h2>
-        <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-950/70 dark:text-zinc-300">
-          {items.length}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-950/70 dark:text-zinc-300">
+            {items.length}
+          </span>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded border border-black/10 bg-white/60 px-2 py-0.5 text-xs text-zinc-600 hover:bg-white dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          >
+            {collapsed ? "Show" : "Hide"}
+          </button>
+        </div>
       </div>
-      <div className="grid min-h-36 grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2 p-2">
+      {collapsed ? null : <div className="grid min-h-24 grid-cols-[repeat(auto-fill,minmax(116px,1fr))] gap-2 p-2">
         {items.length === 0 ? (
-          <div className="col-span-full grid min-h-32 place-items-center rounded-md border border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700">
+          <div className="col-span-full grid min-h-24 place-items-center rounded-md border border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700">
             {meta.empty}
           </div>
         ) : (
@@ -424,13 +438,13 @@ function Shelf({
                 busy={busyId === item.id || busyId === -1}
                 onConsume={(consumeKind) => onConsume(item, consumeKind)}
                 onUndo={() => onUndo(item)}
-                onStore={() => onStore(item)}
                 onToss={() => onToss(item)}
+                onRestore={() => onRestore(item)}
               />
             );
           })
         )}
-      </div>
+      </div>}
     </section>
   );
 }
@@ -452,6 +466,7 @@ export function InventoryClone({
   const [filter, setFilter] = useState<InventoryFilter>("active");
   const [sort, setSort] = useState<SortMode>("left");
   const [search, setSearch] = useState("");
+  const [collapsedShelves, setCollapsedShelves] = useState<Set<ShelfKind>>(new Set());
 
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const stacks = useMemo(() => {
@@ -492,6 +507,23 @@ export function InventoryClone({
       }),
     [items, stacks],
   );
+  const visibleConsumableItems = useMemo(
+    () =>
+      [...shelves.available, ...shelves.pantry, ...shelves.fridge].filter((item) => {
+        const stack = stacks.get(item.id);
+        return stack && stack.left > 0 && !["disposed", "refunded", "unavailable"].includes(item.consumptionStatus);
+      }),
+    [shelves, stacks],
+  );
+
+  function toggleShelf(kind: ShelfKind) {
+    setCollapsedShelves((current) => {
+      const next = new Set(current);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }
 
   async function setStatus(item: ReceiptTrackerItem, status: ConsumptionStatus) {
     setBusyId(item.id);
@@ -551,10 +583,6 @@ export function InventoryClone({
     }
   }
 
-  async function autoStore(item: ReceiptTrackerItem) {
-    await setStatus(item, autoStorageStatus(item));
-  }
-
   async function autoStoreCounter() {
     await setStatuses(counterItems, autoStorageStatus);
   }
@@ -584,6 +612,62 @@ export function InventoryClone({
       }
     } catch {
       setMessage("Could not log that serving.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function consumeVisible() {
+    const eligible = visibleConsumableItems;
+    if (eligible.length === 0) return;
+    setBusyId(-1);
+    setMessage(null);
+    const previousLogs = logs;
+    const previousItems = items;
+    try {
+      const created: ReceiptConsumptionLog[] = [];
+      for (const item of eligible) {
+        const stack = stacks.get(item.id);
+        if (!stack || stack.left <= 0) continue;
+        const kind: ConsumeKind = isDrinkItem(item) ? "drank" : "eaten";
+        const res = await fetch(`/api/receipts/${receipt.id}/consumption`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            lineItemId: item.id,
+            consumedAt: logAt,
+            amount: 1,
+            unit: "serving",
+            note: `${kind}: ${stack.clickLabel}`,
+          }),
+        });
+        if (!res.ok) throw new Error("bulk consume failed");
+        const data = (await res.json()) as { log: ReceiptConsumptionLog };
+        created.push(data.log);
+      }
+
+      const finished = eligible.filter((item) => (stacks.get(item.id)?.left ?? 0) <= 1);
+      setLogs((current) => [...current, ...created].sort((a, b) => a.consumedAt.localeCompare(b.consumedAt)));
+      if (finished.length > 0) {
+        const finishedIds = finished.map((item) => item.id);
+        setItems((current) =>
+          current.map((item) =>
+            finishedIds.includes(item.id)
+              ? { ...item, consumptionStatus: "consumed", statusDate: logAt.slice(0, 10) }
+              : item,
+          ),
+        );
+        const res = await fetch(`/api/receipts/${receipt.id}/items`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ itemIds: finishedIds, status: "consumed", statusDate: logAt.slice(0, 10) }),
+        });
+        if (!res.ok) throw new Error("bulk consumed status update failed");
+      }
+    } catch {
+      setLogs(previousLogs);
+      setItems(previousItems);
+      setMessage("Could not log all visible servings.");
     } finally {
       setBusyId(null);
     }
@@ -620,10 +704,28 @@ export function InventoryClone({
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-4">
-        <div className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 xl:grid-cols-[minmax(150px,190px)_minmax(0,1fr)_auto_auto_auto] xl:items-end">
+        <div className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 xl:grid-cols-[minmax(150px,190px)_auto_minmax(0,1fr)_auto_auto] xl:items-end">
           <div>
             <div className="text-xs uppercase tracking-wide text-zinc-500">Inventory clone</div>
             <div className="mt-1 text-lg font-semibold">{formatNumber(totalLeft, 1)} servings left</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={autoStoreCounter}
+              disabled={busyId != null || counterItems.length === 0}
+              className="rounded-md border border-amber-300 px-3 py-2 text-center text-sm font-semibold text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
+            >
+              Store all
+            </button>
+            <button
+              type="button"
+              onClick={consumeVisible}
+              disabled={busyId != null || visibleConsumableItems.length === 0}
+              className="rounded-md border border-emerald-300 px-3 py-2 text-center text-sm font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
+            >
+              Eat all
+            </button>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             <label className="grid gap-1 text-xs text-zinc-500">
@@ -685,14 +787,6 @@ export function InventoryClone({
           >
             Table
           </Link>
-          <button
-            type="button"
-            onClick={autoStoreCounter}
-            disabled={busyId != null || counterItems.length === 0}
-            className="rounded-md border border-amber-300 px-3 py-2 text-center text-sm font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
-          >
-            Store counter
-          </button>
         </div>
 
         {message ? (
@@ -707,20 +801,24 @@ export function InventoryClone({
             items={shelves.fridge}
             stacks={stacks}
             busyId={busyId}
+            collapsed={collapsedShelves.has("fridge")}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onStore={autoStore}
             onToss={(item) => setStatus(item, "disposed")}
+            onRestore={(item) => setStatus(item, "available")}
+            onToggle={() => toggleShelf("fridge")}
           />
           <Shelf
             kind="pantry"
             items={shelves.pantry}
             stacks={stacks}
             busyId={busyId}
+            collapsed={collapsedShelves.has("pantry")}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onStore={autoStore}
             onToss={(item) => setStatus(item, "disposed")}
+            onRestore={(item) => setStatus(item, "available")}
+            onToggle={() => toggleShelf("pantry")}
           />
         </div>
 
@@ -729,10 +827,12 @@ export function InventoryClone({
           items={shelves.available}
           stacks={stacks}
           busyId={busyId}
+          collapsed={collapsedShelves.has("available")}
           onConsume={consumeOne}
           onUndo={undoLatest}
-          onStore={autoStore}
           onToss={(item) => setStatus(item, "disposed")}
+          onRestore={(item) => setStatus(item, "available")}
+          onToggle={() => toggleShelf("available")}
         />
 
         <div className="grid gap-4 lg:grid-cols-2">
@@ -741,20 +841,24 @@ export function InventoryClone({
             items={shelves.consumed}
             stacks={stacks}
             busyId={busyId}
+            collapsed={collapsedShelves.has("consumed")}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onStore={autoStore}
             onToss={(item) => setStatus(item, "disposed")}
+            onRestore={(item) => setStatus(item, "available")}
+            onToggle={() => toggleShelf("consumed")}
           />
           <Shelf
             kind="disposed"
             items={shelves.disposed}
             stacks={stacks}
             busyId={busyId}
+            collapsed={collapsedShelves.has("disposed")}
             onConsume={consumeOne}
             onUndo={undoLatest}
-            onStore={autoStore}
             onToss={(item) => setStatus(item, "disposed")}
+            onRestore={(item) => setStatus(item, "available")}
+            onToggle={() => toggleShelf("disposed")}
           />
         </div>
       </div>
