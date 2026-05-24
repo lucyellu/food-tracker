@@ -345,16 +345,16 @@ function StackCard({
 
   return (
     <article className="group relative min-w-0 rounded-md border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-400 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-      <div className="grid min-w-0 grid-cols-[42px_minmax(0,1fr)] gap-1.5 p-1.5" title={`${compactName(item.rawName)} · ${stack.clickLabel}`}>
+      <div className="grid min-w-0 grid-cols-[38px_minmax(0,1fr)] gap-1.5 p-1.5 sm:grid-cols-[42px_minmax(0,1fr)]" title={`${compactName(item.rawName)} · ${stack.clickLabel}`}>
         <span className="absolute right-1 top-1 z-10 rounded-full bg-zinc-950 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow dark:bg-zinc-100 dark:text-zinc-950">
           {formatNumber(stack.left, stack.left < 10 ? 1 : 0)}
         </span>
-        <span className="relative grid h-11 w-11 place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-950">
+        <span className="relative grid h-10 w-10 place-items-center overflow-hidden rounded bg-zinc-100 dark:bg-zinc-950 sm:h-11 sm:w-11">
           {image ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={image} alt="" className="h-full w-full object-cover" loading="lazy" />
           ) : (
-            <span className="text-3xl leading-none drop-shadow-sm">{emoji}</span>
+            <span className="text-2xl leading-none drop-shadow-sm sm:text-3xl">{emoji}</span>
           )}
         </span>
         <span className="min-w-0 pt-0.5">
@@ -447,7 +447,7 @@ function Shelf({
           </button>
         </div>
       </div>
-      {collapsed ? null : <div className="grid min-h-24 grid-cols-[repeat(auto-fill,minmax(116px,1fr))] gap-2 p-2">
+      {collapsed ? null : <div className="grid min-h-24 grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-1.5 p-1.5 sm:grid-cols-[repeat(auto-fill,minmax(116px,1fr))] sm:gap-2 sm:p-2">
         {items.length === 0 ? (
           <div className="col-span-full grid min-h-24 place-items-center rounded-md border border-dashed border-zinc-300 text-xs text-zinc-500 dark:border-zinc-700">
             {meta.empty}
@@ -776,14 +776,14 @@ export function InventoryClone({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="space-y-4">
-        <div className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900 xl:grid-cols-[minmax(150px,190px)_auto_minmax(0,1fr)_auto_auto] xl:items-end">
-          <div>
+    <div className="grid gap-3 sm:gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-4">
+        <div className="grid min-w-0 gap-3 rounded-lg border border-zinc-200 bg-white p-2.5 dark:border-zinc-800 dark:bg-zinc-900 sm:p-3 xl:grid-cols-[minmax(150px,190px)_auto_minmax(0,1fr)_auto_auto] xl:items-end">
+          <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-zinc-500">Inventory clone</div>
             <div className="mt-1 text-lg font-semibold">{formatNumber(totalLeft, 1)} servings left</div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid min-w-0 grid-cols-2 gap-2">
             <button
               type="button"
               onClick={autoStoreCounter}
@@ -801,8 +801,8 @@ export function InventoryClone({
               Eat all
             </button>
           </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="grid gap-1 text-xs text-zinc-500">
+          <div className="grid min-w-0 gap-2 min-[520px]:grid-cols-3">
+            <label className="grid min-w-0 gap-1 text-xs text-zinc-500">
               Find
               <input
                 type="search"
@@ -812,12 +812,12 @@ export function InventoryClone({
                 className="min-w-0 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               />
             </label>
-            <label className="grid gap-1 text-xs text-zinc-500">
+            <label className="grid min-w-0 gap-1 text-xs text-zinc-500">
               Show
               <select
                 value={filter}
                 onChange={(event) => setFilter(event.target.value as InventoryFilter)}
-                className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                className="min-w-0 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
                 <option value="active">Active</option>
                 <option value="all">All</option>
@@ -829,12 +829,12 @@ export function InventoryClone({
                 <option value="drink">Drink</option>
               </select>
             </label>
-            <label className="grid gap-1 text-xs text-zinc-500">
+            <label className="grid min-w-0 gap-1 text-xs text-zinc-500">
               Sort
               <select
                 value={sort}
                 onChange={(event) => setSort(event.target.value as SortMode)}
-                className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                className="min-w-0 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
                 <option value="left">Servings left</option>
                 <option value="recent">Recent use/date</option>
@@ -846,13 +846,13 @@ export function InventoryClone({
               </select>
             </label>
           </div>
-          <label className="grid gap-1 text-xs text-zinc-500">
+          <label className="grid min-w-0 gap-1 text-xs text-zinc-500">
             Date and time
             <input
               type="datetime-local"
               value={logAt}
               onChange={(event) => setLogAt(event.target.value)}
-              className="rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              className="min-w-0 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
             />
           </label>
           <Link
@@ -882,7 +882,7 @@ export function InventoryClone({
           </div>
         ) : null}
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-2">
           {shelfOrder.map((kind) => {
             const rows = shelves[kind];
             const empty = rows.length === 0;
@@ -905,14 +905,14 @@ export function InventoryClone({
         </div>
       </div>
 
-      <aside className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <aside className="min-w-0 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">Calendar log</h2>
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-800">
             {logs.length}
           </span>
         </div>
-        <div className="mt-3 max-h-[72vh] space-y-3 overflow-y-auto pr-1">
+        <div className="mt-3 max-h-[420px] space-y-3 overflow-y-auto pr-1 xl:max-h-[72vh]">
           {calendarRows.length === 0 ? (
             <div className="rounded-md border border-dashed border-zinc-300 p-3 text-xs text-zinc-500 dark:border-zinc-700">
               No servings logged.
