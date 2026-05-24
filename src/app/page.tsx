@@ -12,6 +12,15 @@ type GmailStatus = {
   query: string | null;
   error?: string;
 };
+type GmailMerchant = "all" | "tnt" | "pricesmart";
+
+const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "tnt", label: "T&T" },
+  { id: "pricesmart", label: "PriceSmart" },
+];
+
+const GMAIL_DAY_WINDOWS = [14, 30, 90, 365] as const;
 
 export default function Home() {
   const router = useRouter();
@@ -21,6 +30,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [gmailLoading, setGmailLoading] = useState(false);
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
+  const [gmailMerchant, setGmailMerchant] = useState<GmailMerchant>("all");
+  const [gmailDays, setGmailDays] = useState<number>(90);
   const [gmailMessage, setGmailMessage] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -47,14 +58,14 @@ export default function Home() {
     return () => window.clearTimeout(timeoutId);
   }, []);
 
-  async function syncGmail() {
+  async function syncGmail(merchant = gmailMerchant) {
     setGmailLoading(true);
     setGmailMessage(null);
     try {
       const res = await fetch("/api/google/sync", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ maxResults: 10 }),
+        body: JSON.stringify({ maxResults: 25, merchant, days: gmailDays }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -62,7 +73,7 @@ export default function Home() {
         return;
       }
       setGmailMessage(
-        `Scanned ${data.scanned}, parsed ${data.parsed}, skipped ${data.skipped}, failed ${data.failed}.`,
+        `Scanned ${data.scanned}, parsed ${data.parsed}, duplicates ${data.duplicates ?? 0}, skipped ${data.skipped}, failed ${data.failed}.`,
       );
     } catch (e) {
       setGmailMessage(e instanceof Error ? e.message : String(e));
@@ -171,7 +182,7 @@ export default function Home() {
               <>
                 <button
                   type="button"
-                  onClick={syncGmail}
+                  onClick={() => void syncGmail()}
                   disabled={gmailLoading}
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-medium hover:opacity-90 disabled:opacity-50"
                 >
@@ -210,6 +221,60 @@ export default function Home() {
         )}
         {gmailStatus?.query && (
           <p className="text-xs text-zinc-500 dark:text-zinc-500">Search: {gmailStatus.query}</p>
+        )}
+        {gmailStatus?.connected && (
+          <div className="grid gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium uppercase text-zinc-500">Merchant</span>
+              {GMAIL_MERCHANTS.map((merchant) => (
+                <button
+                  key={merchant.id}
+                  type="button"
+                  onClick={() => setGmailMerchant(merchant.id)}
+                  disabled={gmailLoading}
+                  className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+                    gmailMerchant === merchant.id
+                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                      : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {merchant.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium uppercase text-zinc-500">Date</span>
+              {GMAIL_DAY_WINDOWS.map((days) => (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => setGmailDays(days)}
+                  disabled={gmailLoading}
+                  className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+                    gmailDays === days
+                      ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                      : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {days === 365 ? "1 year" : `${days} days`}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {GMAIL_MERCHANTS.filter((merchant) => merchant.id !== "all").map((merchant) => (
+                <button
+                  key={merchant.id}
+                  type="button"
+                  onClick={() => void syncGmail(merchant.id)}
+                  disabled={gmailLoading}
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                >
+                  <RefreshCw className={`size-4 ${gmailLoading && gmailMerchant === merchant.id ? "animate-spin" : ""}`} />
+                  Sync {merchant.label}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {gmailMessage && (
           <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 px-3 py-2 rounded-md text-sm">

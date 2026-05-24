@@ -3,6 +3,12 @@ import { parse as parseHtml } from "node-html-parser";
 import { db, schema } from "@/db/client";
 import { parseReceipt } from "@/lib/llm/parse";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
+import {
+  extractMerchantOrderKey,
+  getGmailMerchantPreset,
+  gmailQueryForPreset,
+  type GmailMerchantPresetId,
+} from "./merchant-presets";
 import { getStoredGoogleConnection, refreshGoogleAccessToken } from "./oauth";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -44,6 +50,10 @@ export type GmailSyncResult = {
   parsed: number;
   skipped: number;
   failed: number;
+  duplicates: number;
+  query: string;
+  merchant: string;
+  days: number;
   receipts: Array<{ id: number; vendor: string | null; purchasedAt: string | null; total: number | null }>;
 };
 
@@ -119,14 +129,28 @@ async function logEmailIngest(input: typeof schema.emailIngestLog.$inferInsert) 
 }
 
 export async function processGmailInbox(maxResults = 10): Promise<GmailSyncResult> {
+  return processGmailMerchantInbox({ maxResults });
+}
+
+export async function processGmailMerchantInbox({
+  maxResults = 10,
+  merchant = "all",
+  days = 90,
+}: {
+  maxResults?: number;
+  merchant?: GmailMerchantPresetId;
+  days?: number;
+} = {}): Promise<GmailSyncResult> {
   const connection = await getStoredGoogleConnection();
   if (!connection) {
     throw new Error("Gmail is not connected yet");
   }
 
   const accessToken = await refreshGoogleAccessToken(connection.refreshToken);
+  const preset = getGmailMerchantPreset(merchant);
+  const query = gmailQueryForPreset(preset.id, days);
   const list = await gmailFetch<GmailListResponse>("/messages", accessToken, {
-    q: connection.query || DEFAULT_QUERY,
+    q: query || connection.query || DEFAULT_QUERY,
     maxResults: String(maxResults),
   });
 
@@ -135,6 +159,10 @@ export async function processGmailInbox(maxResults = 10): Promise<GmailSyncResul
     parsed: 0,
     skipped: 0,
     failed: 0,
+    duplicates: 0,
+    query: query || connection.query || DEFAULT_QUERY,
+    merchant: preset.id,
+    days,
     receipts: [],
   };
 
@@ -169,6 +197,28 @@ export async function processGmailInbox(maxResults = 10): Promise<GmailSyncResul
         continue;
       }
 
+      const merchantOrderKey = extractMerchantOrderKey(rawInputRef, preset.id);
+      if (merchantOrderKey) {
+        const [existingOrder] = await db
+          .select({ id: schema.receipts.id })
+          .from(schema.receipts)
+          .where(eq(schema.receipts.sourceMessageId, merchantOrderKey))
+          .limit(1);
+        if (existingOrder) {
+          result.duplicates += 1;
+          result.skipped += 1;
+          await logEmailIngest({
+            fromAddress: getHeader(message, "From"),
+            subject: getHeader(message, "Subject"),
+            messageId: item.id,
+            status: "skipped_not_receipt",
+            errorText: `Duplicate merchant order ${merchantOrderKey}`,
+            receiptId: existingOrder.id,
+          });
+          continue;
+        }
+      }
+
       const parsed = await parseReceipt({ kind: "text", text: rawInputRef });
       if (!parsed.is_receipt) {
         result.skipped += 1;
@@ -186,7 +236,7 @@ export async function processGmailInbox(maxResults = 10): Promise<GmailSyncResul
         source: "auto_email",
         rawInputKind: "email",
         rawInputRef,
-        sourceMessageId: item.id,
+        sourceMessageId: merchantOrderKey ?? item.id,
       });
       result.parsed += 1;
       result.receipts.push({
