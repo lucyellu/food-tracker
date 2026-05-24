@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -15,6 +16,8 @@ type ShelfKind = "available" | "pantry" | "fridge" | "consumed" | "disposed";
 type SortMode = "name" | "left" | "calories" | "carbs" | "protein" | "sodium" | "recent";
 type InventoryFilter = "active" | "all" | "counter" | "stored" | "fridge" | "pantry" | "food" | "drink";
 type ConsumeKind = "eaten" | "drank";
+
+const SHELF_ORDER: ShelfKind[] = ["available", "fridge", "pantry", "consumed", "disposed"];
 
 export type InventoryReceipt = {
   id: number;
@@ -36,6 +39,13 @@ type StackInfo = {
   unitLabel: string;
   clickLabel: string;
   gramsPerServing: number | null;
+};
+
+type SavedInventoryView = {
+  filter?: InventoryFilter;
+  sort?: SortMode;
+  search?: string;
+  collapsedShelves?: ShelfKind[];
 };
 
 const SHELF_META: Record<
@@ -212,6 +222,12 @@ function latestLogForItem(logs: ReceiptConsumptionLog[], itemId: number) {
     .sort((a, b) => b.consumedAt.localeCompare(a.consumedAt) || b.id - a.id)[0];
 }
 
+function logsForItem(logs: ReceiptConsumptionLog[], itemId: number) {
+  return [...logs]
+    .filter((log) => log.lineItemId === itemId)
+    .sort((a, b) => b.consumedAt.localeCompare(a.consumedAt) || b.id - a.id);
+}
+
 function groupLogsByDay(logs: ReceiptConsumptionLog[], itemsById: Map<number, ReceiptTrackerItem>) {
   const grouped = new Map<string, Array<{ log: ReceiptConsumptionLog; item: ReceiptTrackerItem | undefined }>>();
   for (const log of logs) {
@@ -282,21 +298,23 @@ function sortItems(
   });
 }
 
+function amountLabel(amount: number, unitLabel: string) {
+  return `${formatNumber(amount, amount < 10 ? 1 : 0)} ${unitLabel}${amount === 1 ? "" : "s"}`;
+}
+
 function StackCard({
   item,
   stack,
   busy,
   onConsume,
   onUndo,
-  onToss,
   onRestore,
 }: {
   item: ReceiptTrackerItem;
   stack: StackInfo;
   busy: boolean;
-  onConsume: (kind: ConsumeKind) => void;
-  onUndo: () => void;
-  onToss: () => void;
+  onConsume: (kind: ConsumeKind, amount: number) => void;
+  onUndo: (mode: "one" | "all") => void;
   onRestore: () => void;
 }) {
   const canConsume = stack.left > 0 && !["disposed", "refunded", "unavailable"].includes(item.consumptionStatus);
@@ -307,8 +325,7 @@ function StackCard({
   const emoji = categoryEmoji(item.rawName);
   const consumeKind: ConsumeKind = isDrinkItem(item) ? "drank" : "eaten";
   const consumeLabel = consumeKind === "drank" ? "Drink" : "Eat";
-  const primaryLabel = isDisposed ? "Restore" : isConsumed ? "Uneat" : consumeLabel;
-  const secondaryLabel = isDisposed || (hasConsumed && !isConsumed) ? "Uneat" : "Discard";
+  const wholeLabel = consumeKind === "drank" ? "Drink all" : "Eat all";
   const nutrientSummary = [
     item.nutrition?.calories == null ? null : `${formatNumber(item.nutrition.calories)} cal`,
     item.nutrition?.carbsG == null ? null : `${formatNumber(item.nutrition.carbsG)}g C`,
@@ -320,18 +337,10 @@ function StackCard({
       return;
     }
     if (isConsumed) {
-      onUndo();
+      onUndo("one");
       return;
     }
-    onConsume(consumeKind);
-  }
-
-  function handleSecondaryAction() {
-    if (isDisposed || (hasConsumed && !isConsumed)) {
-      onUndo();
-      return;
-    }
-    onToss();
+    onConsume(consumeKind, 1);
   }
 
   return (
@@ -364,15 +373,31 @@ function StackCard({
           disabled={busy || (!canConsume && !isConsumed && !isDisposed)}
           className="px-1 py-1 font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
         >
-          {primaryLabel}
+          {isDisposed ? "Restore" : isConsumed ? "Undo 1" : `${consumeLabel} 1`}
         </button>
         <button
           type="button"
-          onClick={handleSecondaryAction}
-          disabled={busy}
-          className="border-l border-zinc-100 px-1 py-1 text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-zinc-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+          onClick={() => onConsume(consumeKind, stack.left)}
+          disabled={busy || !canConsume}
+          className="border-l border-zinc-100 px-1 py-1 font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-zinc-800 dark:text-emerald-300 dark:hover:bg-emerald-950/40"
         >
-          {secondaryLabel}
+          {wholeLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => onUndo("one")}
+          disabled={busy || !hasConsumed}
+          className="border-t border-zinc-100 px-1 py-1 text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Undo 1
+        </button>
+        <button
+          type="button"
+          onClick={() => onUndo("all")}
+          disabled={busy || !hasConsumed}
+          className="border-l border-t border-zinc-100 px-1 py-1 text-zinc-600 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          Undo all
         </button>
       </div>
     </article>
@@ -385,9 +410,9 @@ function Shelf({
   stacks,
   busyId,
   collapsed,
+  empty,
   onConsume,
   onUndo,
-  onToss,
   onRestore,
   onToggle,
 }: {
@@ -396,9 +421,9 @@ function Shelf({
   stacks: Map<number, StackInfo>;
   busyId: number | null;
   collapsed: boolean;
-  onConsume: (item: ReceiptTrackerItem, kind: ConsumeKind) => void;
-  onUndo: (item: ReceiptTrackerItem) => void;
-  onToss: (item: ReceiptTrackerItem) => void;
+  empty: boolean;
+  onConsume: (item: ReceiptTrackerItem, kind: ConsumeKind, amount: number) => void;
+  onUndo: (item: ReceiptTrackerItem, mode: "one" | "all") => void;
   onRestore: (item: ReceiptTrackerItem) => void;
   onToggle: () => void;
 }) {
@@ -415,9 +440,10 @@ function Shelf({
           <button
             type="button"
             onClick={onToggle}
+            disabled={empty}
             className="rounded border border-black/10 bg-white/60 px-2 py-0.5 text-xs text-zinc-600 hover:bg-white dark:border-white/10 dark:bg-zinc-950/40 dark:text-zinc-300 dark:hover:bg-zinc-900"
           >
-            {collapsed ? "Show" : "Hide"}
+            {empty ? "Empty" : collapsed ? "Show" : "Hide"}
           </button>
         </div>
       </div>
@@ -436,9 +462,8 @@ function Shelf({
                 item={item}
                 stack={stack}
                 busy={busyId === item.id || busyId === -1}
-                onConsume={(consumeKind) => onConsume(item, consumeKind)}
-                onUndo={() => onUndo(item)}
-                onToss={() => onToss(item)}
+                onConsume={(consumeKind, amount) => onConsume(item, consumeKind, amount)}
+                onUndo={(mode) => onUndo(item, mode)}
                 onRestore={() => onRestore(item)}
               />
             );
@@ -467,6 +492,30 @@ export function InventoryClone({
   const [sort, setSort] = useState<SortMode>("left");
   const [search, setSearch] = useState("");
   const [collapsedShelves, setCollapsedShelves] = useState<Set<ShelfKind>>(new Set());
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const viewStorageKey = `food-tracker:inventory-view:${receipt.id}`;
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(viewStorageKey);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as SavedInventoryView;
+      queueMicrotask(() => {
+        if (parsed.filter && ["active", "all", "counter", "stored", "fridge", "pantry", "food", "drink"].includes(parsed.filter)) {
+          setFilter(parsed.filter);
+        }
+        if (parsed.sort && ["name", "left", "calories", "carbs", "protein", "sodium", "recent"].includes(parsed.sort)) {
+          setSort(parsed.sort);
+        }
+        if (typeof parsed.search === "string") setSearch(parsed.search);
+        if (Array.isArray(parsed.collapsedShelves)) {
+          setCollapsedShelves(new Set(parsed.collapsedShelves.filter((kind) => SHELF_ORDER.includes(kind))));
+        }
+      });
+    } catch {
+      queueMicrotask(() => setSaveMessage("Could not load saved view."));
+    }
+  }, [viewStorageKey]);
 
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const stacks = useMemo(() => {
@@ -515,6 +564,10 @@ export function InventoryClone({
       }),
     [shelves, stacks],
   );
+  const shelfOrder = useMemo(
+    () => [...SHELF_ORDER].sort((a, b) => Number(shelves[b].length > 0) - Number(shelves[a].length > 0)),
+    [shelves],
+  );
 
   function toggleShelf(kind: ShelfKind) {
     setCollapsedShelves((current) => {
@@ -523,6 +576,21 @@ export function InventoryClone({
       else next.add(kind);
       return next;
     });
+  }
+
+  function saveView() {
+    const payload: SavedInventoryView = {
+      filter,
+      sort,
+      search,
+      collapsedShelves: [...collapsedShelves],
+    };
+    try {
+      window.localStorage.setItem(viewStorageKey, JSON.stringify(payload));
+      setSaveMessage("View saved.");
+    } catch {
+      setSaveMessage("Could not save view.");
+    }
   }
 
   async function setStatus(item: ReceiptTrackerItem, status: ConsumptionStatus) {
@@ -587,9 +655,10 @@ export function InventoryClone({
     await setStatuses(counterItems, autoStorageStatus);
   }
 
-  async function consumeOne(item: ReceiptTrackerItem, kind: ConsumeKind) {
+  async function consumeItem(item: ReceiptTrackerItem, kind: ConsumeKind, amount: number) {
     const stack = stacks.get(item.id);
-    if (!stack || stack.left <= 0) return;
+    const servingAmount = Math.min(amount, stack?.left ?? 0);
+    if (!stack || servingAmount <= 0) return;
     setBusyId(item.id);
     setMessage(null);
     try {
@@ -599,15 +668,15 @@ export function InventoryClone({
         body: JSON.stringify({
           lineItemId: item.id,
           consumedAt: logAt,
-          amount: 1,
+          amount: servingAmount,
           unit: "serving",
-          note: `${kind}: ${stack.clickLabel}`,
+          note: `${kind}: ${amountLabel(servingAmount, stack.unitLabel)}`,
         }),
       });
       if (!res.ok) throw new Error("consume failed");
       const data = (await res.json()) as { log: ReceiptConsumptionLog };
       setLogs((current) => [...current, data.log].sort((a, b) => a.consumedAt.localeCompare(b.consumedAt)));
-      if (stack.left <= 1) {
+      if (servingAmount >= stack.left) {
         await setStatus(item, "consumed");
       }
     } catch {
@@ -639,7 +708,7 @@ export function InventoryClone({
             consumedAt: logAt,
             amount,
             unit: "serving",
-            note: `${kind}: ${formatNumber(amount, amount < 10 ? 1 : 0)} ${stack.unitLabel}${amount === 1 ? "" : "s"}`,
+            note: `${kind}: ${amountLabel(amount, stack.unitLabel)}`,
           }),
         });
         if (!res.ok) throw new Error("bulk consume failed");
@@ -674,29 +743,33 @@ export function InventoryClone({
     }
   }
 
-  async function undoLatest(item: ReceiptTrackerItem) {
-    const log = latestLogForItem(logs, item.id);
-    if (!log) {
+  async function undoConsumption(item: ReceiptTrackerItem, mode: "one" | "all") {
+    const latestLog = latestLogForItem(logs, item.id);
+    const matchingLogs = mode === "all" ? logsForItem(logs, item.id) : latestLog ? [latestLog] : [];
+    if (matchingLogs.length === 0) {
       if (item.consumptionStatus === "disposed") await setStatus(item, "available");
       return;
     }
     setBusyId(item.id);
     setMessage(null);
     const previousLogs = logs;
-    setLogs((current) => current.filter((row) => row.id !== log.id));
+    const logIds = new Set(matchingLogs.map((log) => log.id));
+    setLogs((current) => current.filter((row) => !logIds.has(row.id)));
     try {
-      const res = await fetch(`/api/receipts/${receipt.id}/consumption`, {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ logId: log.id }),
-      });
-      if (!res.ok) throw new Error("undo failed");
+      for (const log of matchingLogs) {
+        const res = await fetch(`/api/receipts/${receipt.id}/consumption`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ logId: log.id }),
+        });
+        if (!res.ok) throw new Error("undo failed");
+      }
       if (item.consumptionStatus === "consumed") {
         await setStatus(item, "available");
       }
     } catch {
       setLogs(previousLogs);
-      setMessage("Could not undo that serving.");
+      setMessage(mode === "all" ? "Could not undo that stack." : "Could not undo that serving.");
     } finally {
       setBusyId(null);
     }
@@ -788,79 +861,47 @@ export function InventoryClone({
           >
             Table
           </Link>
+          <button
+            type="button"
+            onClick={saveView}
+            className="rounded-md border border-zinc-200 px-3 py-2 text-center text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            Save view
+          </button>
         </div>
 
-        {message ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300">
-            {message}
+        {message || saveMessage ? (
+          <div
+            className={`rounded-md border px-3 py-2 text-sm ${
+              message
+                ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
+            }`}
+          >
+            {message ?? saveMessage}
           </div>
         ) : null}
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <Shelf
-            kind="fridge"
-            items={shelves.fridge}
-            stacks={stacks}
-            busyId={busyId}
-            collapsed={collapsedShelves.has("fridge")}
-            onConsume={consumeOne}
-            onUndo={undoLatest}
-            onToss={(item) => setStatus(item, "disposed")}
-            onRestore={(item) => setStatus(item, "available")}
-            onToggle={() => toggleShelf("fridge")}
-          />
-          <Shelf
-            kind="pantry"
-            items={shelves.pantry}
-            stacks={stacks}
-            busyId={busyId}
-            collapsed={collapsedShelves.has("pantry")}
-            onConsume={consumeOne}
-            onUndo={undoLatest}
-            onToss={(item) => setStatus(item, "disposed")}
-            onRestore={(item) => setStatus(item, "available")}
-            onToggle={() => toggleShelf("pantry")}
-          />
-        </div>
-
-        <Shelf
-          kind="available"
-          items={shelves.available}
-          stacks={stacks}
-          busyId={busyId}
-          collapsed={collapsedShelves.has("available")}
-          onConsume={consumeOne}
-          onUndo={undoLatest}
-          onToss={(item) => setStatus(item, "disposed")}
-          onRestore={(item) => setStatus(item, "available")}
-          onToggle={() => toggleShelf("available")}
-        />
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Shelf
-            kind="consumed"
-            items={shelves.consumed}
-            stacks={stacks}
-            busyId={busyId}
-            collapsed={collapsedShelves.has("consumed")}
-            onConsume={consumeOne}
-            onUndo={undoLatest}
-            onToss={(item) => setStatus(item, "disposed")}
-            onRestore={(item) => setStatus(item, "available")}
-            onToggle={() => toggleShelf("consumed")}
-          />
-          <Shelf
-            kind="disposed"
-            items={shelves.disposed}
-            stacks={stacks}
-            busyId={busyId}
-            collapsed={collapsedShelves.has("disposed")}
-            onConsume={consumeOne}
-            onUndo={undoLatest}
-            onToss={(item) => setStatus(item, "disposed")}
-            onRestore={(item) => setStatus(item, "available")}
-            onToggle={() => toggleShelf("disposed")}
-          />
+          {shelfOrder.map((kind) => {
+            const rows = shelves[kind];
+            const empty = rows.length === 0;
+            return (
+              <Shelf
+                key={kind}
+                kind={kind}
+                items={rows}
+                stacks={stacks}
+                busyId={busyId}
+                collapsed={empty || collapsedShelves.has(kind)}
+                empty={empty}
+                onConsume={consumeItem}
+                onUndo={undoConsumption}
+                onRestore={(item) => setStatus(item, "available")}
+                onToggle={() => toggleShelf(kind)}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -895,7 +936,7 @@ export function InventoryClone({
                       </div>
                       <button
                         type="button"
-                        onClick={() => item && undoLatest(item)}
+                        onClick={() => item && undoConsumption(item, "one")}
                         disabled={!item || busyId === item.id}
                         className="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                       >
