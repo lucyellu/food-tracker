@@ -1,3 +1,4 @@
+import { SettingsGmailPanel } from "./SettingsGmailPanel";
 import { SettingsDataPanel } from "./SettingsDataPanel";
 
 export default function SettingsPage() {
@@ -6,10 +7,11 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          Backup, restore, and move your tracker data between local development, hosted deployments, or a fresh
+          Connect inbox import, backup tracker data, and move between local development, hosted deployments, or a fresh
           database.
         </p>
       </div>
+      <SettingsGmailPanel />
       <SettingsDataPanel />
     </div>
   );
