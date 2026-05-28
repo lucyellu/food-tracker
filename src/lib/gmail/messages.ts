@@ -61,6 +61,9 @@ type ReceiptCandidate = {
 };
 
 export type GmailSyncResult = {
+  accountId: number | null;
+  accountEmail: string | null;
+  provider: "gmail_oauth";
   scanned: number;
   candidates: number;
   attachments: number;
@@ -72,6 +75,13 @@ export type GmailSyncResult = {
   merchant: string;
   days: number;
   receipts: Array<{ id: number; vendor: string | null; purchasedAt: string | null; total: number | null }>;
+};
+
+type GmailAccountConnection = {
+  accountId: number | null;
+  email: string | null;
+  query: string | null;
+  refreshToken: string;
 };
 
 async function gmailFetch<T>(path: string, accessToken: string, params?: Record<string, string>) {
@@ -321,6 +331,25 @@ export async function processGmailMerchantInbox({
     throw new Error("Gmail is not connected yet");
   }
 
+  return processGmailAccount(connection, { maxResults, merchant, days });
+}
+
+function scopedGmailSourceId(connection: GmailAccountConnection, id: string) {
+  return connection.accountId ? `email:${connection.accountId}:gmail:${id}` : id;
+}
+
+export async function processGmailAccount(
+  connection: GmailAccountConnection,
+  {
+    maxResults = 10,
+    merchant = "all",
+    days = 90,
+  }: {
+    maxResults?: number;
+    merchant?: GmailMerchantPresetId;
+    days?: number;
+  } = {},
+): Promise<GmailSyncResult> {
   const accessToken = await refreshGoogleAccessToken(connection.refreshToken);
   const preset = getGmailMerchantPreset(merchant);
   const query = gmailQueryForPreset(preset.id, days);
@@ -330,6 +359,9 @@ export async function processGmailMerchantInbox({
   });
 
   const result: GmailSyncResult = {
+    accountId: connection.accountId,
+    accountEmail: connection.email,
+    provider: "gmail_oauth",
     scanned: 0,
     candidates: 0,
     attachments: 0,
@@ -357,9 +389,10 @@ export async function processGmailMerchantInbox({
       if (candidates.length === 0) {
         result.skipped += 1;
         await logEmailIngest({
+          emailAccountId: connection.accountId,
           fromAddress: getHeader(message, "From"),
           subject: getHeader(message, "Subject"),
-          messageId: item.id,
+          messageId: scopedGmailSourceId(connection, item.id),
           status: "skipped_not_receipt",
           errorText: "No readable email body or supported receipt attachment found",
         });
@@ -368,8 +401,9 @@ export async function processGmailMerchantInbox({
 
       let parsedAny = false;
       for (const candidate of candidates) {
-        const candidateMessageId =
+        const rawCandidateMessageId =
           candidate.id === "body" ? item.id : `${item.id}:${candidate.id}`;
+        const candidateMessageId = scopedGmailSourceId(connection, rawCandidateMessageId);
         const [existing] = await db
           .select({ id: schema.receipts.id })
           .from(schema.receipts)
@@ -379,6 +413,7 @@ export async function processGmailMerchantInbox({
           result.duplicates += 1;
           result.skipped += 1;
           await logEmailIngest({
+            emailAccountId: connection.accountId,
             fromAddress: getHeader(message, "From"),
             subject: getHeader(message, "Subject"),
             messageId: candidateMessageId,
@@ -393,6 +428,7 @@ export async function processGmailMerchantInbox({
         if (!parsed.is_receipt) {
           result.skipped += 1;
           await logEmailIngest({
+            emailAccountId: connection.accountId,
             fromAddress: getHeader(message, "From"),
             subject: getHeader(message, "Subject"),
             messageId: candidateMessageId,
@@ -414,6 +450,7 @@ export async function processGmailMerchantInbox({
             result.duplicates += 1;
             result.skipped += 1;
             await logEmailIngest({
+              emailAccountId: connection.accountId,
               fromAddress: getHeader(message, "From"),
               subject: getHeader(message, "Subject"),
               messageId: candidateMessageId,
@@ -441,6 +478,7 @@ export async function processGmailMerchantInbox({
           total: receipt.total,
         });
         await logEmailIngest({
+          emailAccountId: connection.accountId,
           fromAddress: getHeader(message, "From"),
           subject: getHeader(message, "Subject"),
           messageId: candidateMessageId,
@@ -456,9 +494,10 @@ export async function processGmailMerchantInbox({
     } catch (e) {
       result.failed += 1;
       await logEmailIngest({
+        emailAccountId: connection.accountId,
         fromAddress: message ? getHeader(message, "From") : null,
         subject: message ? getHeader(message, "Subject") : null,
-        messageId: item.id,
+        messageId: scopedGmailSourceId(connection, item.id),
         status: "failed",
         errorText: e instanceof Error ? e.message : String(e),
       });

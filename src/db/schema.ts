@@ -131,10 +131,39 @@ export const settings = pgTable("settings", {
   emailPollIntervalMin: integer("email_poll_interval_min").default(5),
 });
 
+export const emailAccounts = pgTable(
+  "email_accounts",
+  {
+    id: serial("id").primaryKey(),
+    provider: text("provider", { enum: ["gmail_oauth", "yahoo_imap"] }).notNull(),
+    label: text("label"),
+    email: text("email"),
+    host: text("host"),
+    port: integer("port"),
+    mailbox: text("mailbox").notNull().default("INBOX"),
+    query: text("query"),
+    secretEncrypted: text("secret_encrypted").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("email_accounts_provider_idx").on(t.provider),
+    index("email_accounts_enabled_idx").on(t.enabled),
+  ],
+);
+
 export const emailIngestLog = pgTable(
   "email_ingest_log",
   {
     id: serial("id").primaryKey(),
+    emailAccountId: integer("email_account_id").references(() => emailAccounts.id, {
+      onDelete: "set null",
+    }),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -150,6 +179,7 @@ export const emailIngestLog = pgTable(
     errorText: text("error_text"),
   },
   (t) => [
+    index("email_ingest_log_account_id_idx").on(t.emailAccountId),
     index("email_ingest_log_received_at_idx").on(t.receivedAt),
     index("email_ingest_log_message_id_idx").on(t.messageId),
   ],
@@ -172,3 +202,4 @@ export type NewNutritionFact = typeof nutritionFacts.$inferInsert;
 export type ConsumptionLog = typeof consumptionLogs.$inferSelect;
 export type NewConsumptionLog = typeof consumptionLogs.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
+export type EmailAccount = typeof emailAccounts.$inferSelect;

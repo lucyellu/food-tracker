@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, RefreshCw, Unplug } from "lucide-react";
+import { Mail, RefreshCw, Settings } from "lucide-react";
 
 type Mode = "text" | "email" | "image";
 type GmailStatus = {
@@ -10,6 +11,7 @@ type GmailStatus = {
   connected: boolean;
   email: string | null;
   query: string | null;
+  accounts?: Array<{ id: number; email: string | null; providerLabel: string; mailbox: string }>;
   error?: string;
 };
 type GmailSyncError = {
@@ -91,25 +93,6 @@ export default function Home() {
     }
   }
 
-  async function disconnectGmail() {
-    setGmailLoading(true);
-    setGmailMessage(null);
-    try {
-      const res = await fetch("/api/google/disconnect", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setGmailMessage(data.error ?? `Disconnect failed: ${res.status}`);
-        return;
-      }
-      await loadGmailStatus();
-      setGmailMessage("Gmail disconnected.");
-    } catch (e) {
-      setGmailMessage(e instanceof Error ? e.message : String(e));
-    } finally {
-      setGmailLoading(false);
-    }
-  }
-
   async function submit() {
     setError(null);
     setLoading(true);
@@ -179,11 +162,11 @@ export default function Home() {
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold">Gmail receipts</h2>
+            <h2 className="text-base font-semibold">Email receipts</h2>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
               {gmailStatus?.connected
-                ? `Connected${gmailStatus.email ? ` as ${gmailStatus.email}` : ""}.`
-                : "Connect one Gmail inbox at a time and import likely receipt emails."}
+                ? `Connected${gmailStatus.email ? `: ${gmailStatus.email}` : "."}`
+                : "Connect inboxes and import likely receipt emails."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -196,36 +179,34 @@ export default function Home() {
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-medium hover:opacity-90 disabled:opacity-50"
                 >
                   <RefreshCw className={`size-4 ${gmailLoading ? "animate-spin" : ""}`} />
-                  Process inbox
+                  Process inboxes
                 </button>
-                <button
-                  type="button"
-                  onClick={disconnectGmail}
-                  disabled={gmailLoading}
+                <Link
+                  href="/settings"
                   className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-zinc-200 dark:border-zinc-800 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  <Unplug className="size-4" />
-                  Disconnect
-                </button>
+                  <Settings className="size-4" />
+                  Manage
+                </Link>
               </>
             ) : (
-              <a
-                href="/api/google/auth"
+              <Link
+                href="/settings"
                 className={`inline-flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium ${
-                  gmailStatus?.configured
+                  gmailStatus
                     ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90"
                     : "border border-zinc-200 dark:border-zinc-800 text-zinc-400 pointer-events-none"
                 }`}
               >
                 <Mail className="size-4" />
-                Connect Gmail
-              </a>
+                Connect inbox
+              </Link>
             )}
           </div>
         </div>
         {gmailStatus && !gmailStatus.configured && (
           <p className="text-sm text-amber-700 dark:text-amber-300">
-            Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and EMAIL_ENCRYPTION_KEY to enable Gmail.
+            Add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and EMAIL_ENCRYPTION_KEY to enable Gmail. Yahoo uses app passwords.
           </p>
         )}
         {gmailStatus?.query && (

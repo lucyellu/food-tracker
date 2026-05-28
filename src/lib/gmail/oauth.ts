@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
 
@@ -126,7 +126,7 @@ export async function refreshGoogleAccessToken(refreshToken: string) {
   return data.access_token;
 }
 
-async function revokeGoogleToken(refreshToken: string) {
+export async function revokeGoogleToken(refreshToken: string) {
   const res = await fetch(GOOGLE_REVOKE_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -150,40 +150,100 @@ export async function saveGoogleConnection(tokens: GoogleTokenResponse, email: s
     throw new Error("Missing Google refresh token");
   }
 
+  const query = process.env.GMAIL_RECEIPT_QUERY || "newer_than:90d (receipt OR order OR invoice)";
+  const existing = email
+    ? await db
+        .select()
+        .from(schema.emailAccounts)
+        .where(and(eq(schema.emailAccounts.provider, "gmail_oauth"), eq(schema.emailAccounts.email, email)))
+        .limit(1)
+    : [];
+
+  const accountValues = {
+    provider: "gmail_oauth" as const,
+    label: email,
+    email,
+    host: null,
+    port: null,
+    mailbox: "Gmail API",
+    query,
+    secretEncrypted: encryptSecret(tokens.refresh_token),
+    enabled: true,
+    updatedAt: new Date(),
+  };
+
+  if (existing[0]) {
+    await db
+      .update(schema.emailAccounts)
+      .set(accountValues)
+      .where(eq(schema.emailAccounts.id, existing[0].id));
+  } else {
+    await db.insert(schema.emailAccounts).values(accountValues);
+  }
+
   await db
     .insert(schema.settings)
     .values({
       id: 1,
-      emailEnabled: true,
+      emailEnabled: false,
       emailUsername: email,
-      emailPasswordEncrypted: encryptSecret(tokens.refresh_token),
-      emailMailbox: process.env.GMAIL_RECEIPT_QUERY || "newer_than:90d (receipt OR order OR invoice)",
+      emailPasswordEncrypted: null,
+      emailMailbox: query,
     })
     .onConflictDoUpdate({
       target: schema.settings.id,
       set: {
-        emailEnabled: true,
+        emailEnabled: false,
         emailUsername: email,
-        emailPasswordEncrypted: encryptSecret(tokens.refresh_token),
-        emailMailbox: process.env.GMAIL_RECEIPT_QUERY || "newer_than:90d (receipt OR order OR invoice)",
+        emailPasswordEncrypted: null,
+        emailMailbox: query,
       },
     });
 }
 
 export async function getStoredGoogleConnection() {
+  const [account] = await db
+    .select()
+    .from(schema.emailAccounts)
+    .where(and(eq(schema.emailAccounts.provider, "gmail_oauth"), eq(schema.emailAccounts.enabled, true)))
+    .limit(1);
+  if (account?.enabled) {
+    return {
+      accountId: account.id,
+      email: account.email,
+      query: account.query || process.env.GMAIL_RECEIPT_QUERY || "newer_than:90d (receipt OR order OR invoice)",
+      refreshToken: decryptSecret(account.secretEncrypted),
+    };
+  }
+
   const [settings] = await db.select().from(schema.settings).where(eq(schema.settings.id, 1)).limit(1);
   if (!settings?.emailEnabled || !settings.emailPasswordEncrypted) {
     return null;
   }
 
   return {
+    accountId: null,
     email: settings.emailUsername,
     query: settings.emailMailbox || process.env.GMAIL_RECEIPT_QUERY || "newer_than:90d (receipt OR order OR invoice)",
     refreshToken: decryptSecret(settings.emailPasswordEncrypted),
   };
 }
 
-export async function disconnectGoogleConnection() {
+export async function disconnectGoogleConnection(accountId?: number | null) {
+  const accounts = accountId
+    ? await db.select().from(schema.emailAccounts).where(eq(schema.emailAccounts.id, accountId)).limit(1)
+    : await db.select().from(schema.emailAccounts).where(eq(schema.emailAccounts.provider, "gmail_oauth"));
+
+  for (const account of accounts) {
+    if (account.provider !== "gmail_oauth") continue;
+    try {
+      await revokeGoogleToken(decryptSecret(account.secretEncrypted));
+    } catch (error) {
+      console.warn("Could not revoke Google token during disconnect:", error);
+    }
+    await db.delete(schema.emailAccounts).where(eq(schema.emailAccounts.id, account.id));
+  }
+
   const [settings] = await db.select().from(schema.settings).where(eq(schema.settings.id, 1)).limit(1);
   if (settings?.emailPasswordEncrypted) {
     try {
