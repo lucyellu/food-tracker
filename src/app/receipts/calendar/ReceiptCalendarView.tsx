@@ -57,7 +57,7 @@ type CalendarEvent =
 
 type ItemRow = {
   id: string;
-  date: string;
+  date: string | null;
   item: CalendarItem;
   log: CalendarLog | null;
 };
@@ -126,11 +126,11 @@ function formatQty(quantity: number, unit: string) {
 }
 
 function eventDateForReceipt(receipt: CalendarReceipt) {
-  return datePart(receipt.purchasedAt) ?? datePart(receipt.createdAt) ?? todayIso();
+  return datePart(receipt.purchasedAt);
 }
 
 function boughtDateForItem(item: CalendarItem) {
-  return datePart(item.receiptPurchasedAt) ?? datePart(item.receiptCreatedAt) ?? todayIso();
+  return datePart(item.receiptPurchasedAt);
 }
 
 function statusLabel(status: string) {
@@ -162,7 +162,12 @@ export function ReceiptCalendarView({
   logs: CalendarLog[];
 }) {
   const [mode, setMode] = useState<DateMode>("bought");
-  const [cursor, setCursor] = useState(monthStartIso(todayIso()));
+  const latestBoughtDate = receipts
+    .map((receipt) => datePart(receipt.purchasedAt))
+    .filter((date): date is string => Boolean(date))
+    .sort()
+    .at(-1);
+  const [cursor, setCursor] = useState(monthStartIso(latestBoughtDate ?? todayIso()));
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
 
@@ -179,12 +184,19 @@ export function ReceiptCalendarView({
 
   const receiptEvents = useMemo<CalendarEvent[]>(
     () =>
-      receipts.map((receipt) => ({
-        id: `receipt-${receipt.id}`,
-        kind: "receipt",
-        receipt,
-        date: eventDateForReceipt(receipt),
-      })),
+      receipts.flatMap((receipt) => {
+        const date = eventDateForReceipt(receipt);
+        return date
+          ? [
+              {
+                id: `receipt-${receipt.id}`,
+                kind: "receipt" as const,
+                receipt,
+                date,
+              },
+            ]
+          : [];
+      }),
     [receipts],
   );
 
@@ -249,7 +261,7 @@ export function ReceiptCalendarView({
         if (!query) return true;
         return `${row.item.rawName} ${row.item.receiptVendor ?? ""} ${row.log?.note ?? ""}`.toLowerCase().includes(query);
       })
-      .sort((a, b) => b.date.localeCompare(a.date) || a.item.rawName.localeCompare(b.item.rawName));
+      .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.item.rawName.localeCompare(b.item.rawName));
   }, [items, logsByItemId, mode, query]);
 
   const days = calendarDays(cursor);

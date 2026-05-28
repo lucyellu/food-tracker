@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Images, Mail, RefreshCw, Settings } from "lucide-react";
+import { EmailScanProgress } from "@/components/EmailScanProgress";
 
 type Mode = "text" | "email" | "image";
 type GmailStatus = {
@@ -64,27 +65,11 @@ export default function Home() {
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
   const [gmailMerchant, setGmailMerchant] = useState<GmailMerchant>("all");
   const [gmailDays, setGmailDays] = useState<number>(90);
-  const [gmailMessage, setGmailMessage] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
-    const gmailError = params.get("gmail_error");
-    if (gmailError) return gmailError;
-    return params.get("gmail") === "connected"
-      ? "Gmail connected. You can process inbox receipts now."
-      : null;
-  });
+  const [gmailMessage, setGmailMessage] = useState<string | null>(null);
   const [photosStatus, setPhotosStatus] = useState<PhotosStatus | null>(null);
   const [photosBusy, setPhotosBusy] = useState(false);
   const [photosSessionId, setPhotosSessionId] = useState<string | null>(null);
-  const [photosMessage, setPhotosMessage] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
-    const photosError = params.get("photos_error");
-    if (photosError) return photosError;
-    return params.get("photos") === "connected"
-      ? "Google Photos connected. You can pick receipt photos now."
-      : null;
-  });
+  const [photosMessage, setPhotosMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photosPollTimeoutRef = useRef<number | null>(null);
@@ -105,7 +90,23 @@ export default function Home() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gmailError = params.get("gmail_error");
+    const photosError = params.get("photos_error");
+    const nextGmailMessage = gmailError
+      ? gmailError
+      : params.get("gmail") === "connected"
+        ? "Gmail connected. You can process inbox receipts now."
+        : null;
+    const nextPhotosMessage = photosError
+      ? photosError
+      : params.get("photos") === "connected"
+        ? "Google Photos connected. You can pick receipt photos now."
+        : null;
+
     const timeoutId = window.setTimeout(() => {
+      if (nextGmailMessage) setGmailMessage(nextGmailMessage);
+      if (nextPhotosMessage) setPhotosMessage(nextPhotosMessage);
       void loadGmailStatus();
       void loadPhotosStatus();
     }, 0);
@@ -392,6 +393,7 @@ export default function Home() {
             </div>
           </div>
         )}
+        {gmailLoading ? <EmailScanProgress /> : null}
         {gmailMessage && (
           <div className="bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 px-3 py-2 rounded-md text-sm">
             {gmailMessage}

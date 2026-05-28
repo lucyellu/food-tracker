@@ -6,6 +6,7 @@ import {
   type CalendarLog,
   type CalendarReceipt,
 } from "./ReceiptCalendarView";
+import { inferPurchasedDateFromText, normalizeReceiptDate } from "@/lib/receipts/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ async function getCalendarData() {
         purchasedAt: schema.receipts.purchasedAt,
         total: schema.receipts.total,
         source: schema.receipts.source,
+        rawInputRef: schema.receipts.rawInputRef,
         createdAt: schema.receipts.createdAt,
         itemCount: sql<number>`COUNT(${schema.lineItems.id})`.as("item_count"),
       })
@@ -44,6 +46,7 @@ async function getCalendarData() {
         statusDate: schema.lineItems.statusDate,
         receiptVendor: schema.receipts.vendor,
         receiptPurchasedAt: schema.receipts.purchasedAt,
+        receiptRawInputRef: schema.receipts.rawInputRef,
         receiptCreatedAt: schema.receipts.createdAt,
       })
       .from(schema.lineItems)
@@ -66,14 +69,27 @@ async function getCalendarData() {
   return {
     receipts: receipts.map(
       (receipt): CalendarReceipt => ({
-        ...receipt,
+        id: receipt.id,
+        vendor: receipt.vendor,
+        purchasedAt: normalizeReceiptDate(receipt.purchasedAt) ?? inferPurchasedDateFromText(receipt.rawInputRef),
+        total: receipt.total,
+        source: receipt.source,
         createdAt: toIso(receipt.createdAt),
+        itemCount: receipt.itemCount,
       }),
     ),
     items: items.map(
       (item): CalendarItem => ({
-        ...item,
+        id: item.id,
+        receiptId: item.receiptId,
         rawName: item.rawName.replace(/^\[REFUNDED\]\s*/i, ""),
+        quantity: item.quantity,
+        unit: item.unit,
+        price: item.price,
+        consumptionStatus: item.consumptionStatus,
+        statusDate: item.statusDate,
+        receiptVendor: item.receiptVendor,
+        receiptPurchasedAt: normalizeReceiptDate(item.receiptPurchasedAt) ?? inferPurchasedDateFromText(item.receiptRawInputRef),
         receiptCreatedAt: toIso(item.receiptCreatedAt),
       }),
     ),

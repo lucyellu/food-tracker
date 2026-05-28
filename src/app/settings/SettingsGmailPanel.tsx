@@ -2,6 +2,7 @@
 
 import { CheckCircle2, KeyRound, Mail, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { EmailScanProgress } from "@/components/EmailScanProgress";
 
 type EmailAccount = {
   id: number;
@@ -63,18 +64,13 @@ function syncMessage(data: SyncResponse) {
 export function SettingsGmailPanel() {
   const [status, setStatus] = useState<EmailStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [merchant, setMerchant] = useState<GmailMerchant>("all");
   const [days, setDays] = useState<number>(90);
   const [yahooEmail, setYahooEmail] = useState("");
   const [yahooPassword, setYahooPassword] = useState("");
   const [yahooMailbox, setYahooMailbox] = useState("INBOX");
-  const [message, setMessage] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    const params = new URLSearchParams(window.location.search);
-    const error = params.get("gmail_error");
-    if (error) return error;
-    return params.get("gmail") === "connected" ? "Google inbox connected." : null;
-  });
+  const [message, setMessage] = useState<string | null>(null);
 
   async function loadStatus() {
     const res = await fetch("/api/google/status");
@@ -84,7 +80,16 @@ export function SettingsGmailPanel() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("gmail_error");
+    const nextMessage = error
+      ? error
+      : params.get("gmail") === "connected"
+        ? "Google inbox connected."
+        : null;
+
     const timeoutId = window.setTimeout(() => {
+      if (nextMessage) setMessage(nextMessage);
       void loadStatus();
     }, 0);
     return () => window.clearTimeout(timeoutId);
@@ -140,6 +145,7 @@ export function SettingsGmailPanel() {
 
   async function syncInbox(nextMerchant = merchant, accountId?: number) {
     setBusy(true);
+    setSyncing(true);
     setMessage(null);
     try {
       const res = await fetch("/api/google/sync", {
@@ -160,6 +166,7 @@ export function SettingsGmailPanel() {
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not process inbox.");
     } finally {
+      setSyncing(false);
       setBusy(false);
     }
   }
@@ -351,6 +358,12 @@ export function SettingsGmailPanel() {
           </button>
         </div>
       </div>
+
+      {syncing ? (
+        <div className="mt-4">
+          <EmailScanProgress />
+        </div>
+      ) : null}
 
       {message ? (
         <div className="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950">

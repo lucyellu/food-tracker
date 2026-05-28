@@ -1,6 +1,7 @@
 import { db, schema } from "@/db/client";
 import type { ParsedReceipt } from "@/lib/llm/schema";
 import { cannabisNutritionForParsedItem } from "@/lib/receipts/cannabis";
+import { inferPurchasedDateFromText, normalizeReceiptDate } from "@/lib/receipts/dates";
 
 type PersistReceiptInput = {
   parsed: ParsedReceipt;
@@ -17,11 +18,12 @@ export async function persistParsedReceipt({
   rawInputRef,
   sourceMessageId = null,
 }: PersistReceiptInput) {
+  const purchasedAt = normalizeReceiptDate(parsed.purchased_at) ?? inferPurchasedDateFromText(rawInputRef);
   const [receipt] = await db
     .insert(schema.receipts)
     .values({
       vendor: parsed.vendor,
-      purchasedAt: parsed.purchased_at,
+      purchasedAt,
       total: parsed.total,
       source,
       sourceMessageId,
