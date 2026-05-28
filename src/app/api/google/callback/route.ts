@@ -4,6 +4,7 @@ import {
   fetchGoogleUserInfo,
   saveGoogleConnection,
 } from "@/lib/gmail/oauth";
+import { completeGooglePhotosOAuth } from "@/lib/google/photos";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ function redirectAfterOAuth(req: NextRequest, params: Record<string, string>) {
   const res = NextResponse.redirect(url);
   res.cookies.set("gmail_oauth_state", "", { path: "/", maxAge: 0 });
   res.cookies.set("gmail_oauth_return_to", "", { path: "/", maxAge: 0 });
+  res.cookies.set("google_oauth_intent", "", { path: "/", maxAge: 0 });
   return res;
 }
 
@@ -28,21 +30,29 @@ export async function GET(req: NextRequest) {
   const state = req.nextUrl.searchParams.get("state");
   const error = req.nextUrl.searchParams.get("error");
   const expectedState = req.cookies.get("gmail_oauth_state")?.value;
+  const intent = req.cookies.get("google_oauth_intent")?.value;
 
   if (error) {
-    return redirectAfterOAuth(req, { gmail_error: error });
+    return redirectAfterOAuth(req, { [intent === "photos" ? "photos_error" : "gmail_error"]: error });
   }
   if (!code || !state || !expectedState || state !== expectedState) {
-    return redirectAfterOAuth(req, { gmail_error: "Invalid Google OAuth state" });
+    return redirectAfterOAuth(req, {
+      [intent === "photos" ? "photos_error" : "gmail_error"]: "Invalid Google OAuth state",
+    });
   }
 
   try {
+    if (intent === "photos") {
+      await completeGooglePhotosOAuth(req.url, code);
+      return redirectAfterOAuth(req, { photos: "connected" });
+    }
+
     const tokens = await exchangeCodeForTokens(req.url, code);
     const userInfo = await fetchGoogleUserInfo(tokens.access_token ?? "");
     await saveGoogleConnection(tokens, userInfo?.email ?? null);
     return redirectAfterOAuth(req, { gmail: "connected" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return redirectAfterOAuth(req, { gmail_error: msg });
+    return redirectAfterOAuth(req, { [intent === "photos" ? "photos_error" : "gmail_error"]: msg });
   }
 }

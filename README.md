@@ -30,13 +30,13 @@ Visit http://localhost:3000.
 
 You need: DeepSeek key, Gemini key, USDA key (Phase 2), and a Neon Postgres URL (`DATABASE_URL`). Sign up for Neon at https://neon.tech — free tier covers this app, no credit card.
 
-For Gmail import, create a Google Cloud OAuth Web client, enable the Gmail API, and add this authorized redirect URI for local development:
+For Gmail and Google Photos import, create a Google Cloud OAuth Web client, enable the Gmail API and Google Photos Picker API, and add this authorized redirect URI for local development:
 
 ```text
 http://localhost:3000/api/google/callback
 ```
 
-Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EMAIL_ENCRYPTION_KEY`. The app requests read-only Gmail access and stores the refresh token encrypted in the settings table.
+Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EMAIL_ENCRYPTION_KEY`. The app requests read-only Gmail access for inbox imports, and selected-photo access for Google Photos imports. Optional photo OCR uses `GOOGLE_CLOUD_VISION_API_KEY`.
 
 ## Architecture
 

@@ -26,6 +26,7 @@ const SOURCE_LABEL: Record<string, string> = {
   manual_email_paste: "pasted email",
   manual_image: "photo/PDF",
   auto_email: "auto email",
+  google_photos: "Google Photos",
 };
 
 function formatMoney(n: number | null) {

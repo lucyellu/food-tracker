@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, RefreshCw, Settings } from "lucide-react";
+import { Images, Mail, RefreshCw, Settings } from "lucide-react";
 
 type Mode = "text" | "email" | "image";
 type GmailStatus = {
@@ -18,12 +18,38 @@ type GmailSyncError = {
   error?: string;
   needsReconnect?: boolean;
 };
-type GmailMerchant = "all" | "tnt" | "pricesmart";
+type GmailMerchant = "all" | "tnt" | "pricesmart" | "ubereats";
+type PhotosStatus = {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  error?: string;
+};
+type PhotosSessionResponse = {
+  sessionId?: string;
+  pickerUri?: string;
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  error?: string;
+};
+type PhotosImportResponse = {
+  ready?: boolean;
+  selected?: number;
+  parsed?: number;
+  duplicates?: number;
+  skipped?: number;
+  failed?: number;
+  receipts?: Array<{ id: number }>;
+  pollIntervalMs?: number;
+  timeoutMs?: number;
+  error?: string;
+};
 
 const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
   { id: "all", label: "All" },
   { id: "tnt", label: "T&T" },
   { id: "pricesmart", label: "PriceSmart" },
+  { id: "ubereats", label: "Uber Eats" },
 ];
 
 const GMAIL_DAY_WINDOWS = [14, 30, 90, 365] as const;
@@ -47,8 +73,22 @@ export default function Home() {
       ? "Gmail connected. You can process inbox receipts now."
       : null;
   });
+  const [photosStatus, setPhotosStatus] = useState<PhotosStatus | null>(null);
+  const [photosBusy, setPhotosBusy] = useState(false);
+  const [photosSessionId, setPhotosSessionId] = useState<string | null>(null);
+  const [photosMessage, setPhotosMessage] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const photosError = params.get("photos_error");
+    if (photosError) return photosError;
+    return params.get("photos") === "connected"
+      ? "Google Photos connected. You can pick receipt photos now."
+      : null;
+  });
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const photosPollTimeoutRef = useRef<number | null>(null);
+  const photosPollDeadlineRef = useRef<number | null>(null);
 
   async function loadGmailStatus() {
     const res = await fetch("/api/google/status");
@@ -57,11 +97,22 @@ export default function Home() {
     if (data.error) setGmailMessage(data.error);
   }
 
+  async function loadPhotosStatus() {
+    const res = await fetch("/api/google/photos/status");
+    const data = (await res.json()) as PhotosStatus;
+    setPhotosStatus(data);
+    if (data.error) setPhotosMessage(data.error);
+  }
+
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void loadGmailStatus();
+      void loadPhotosStatus();
     }, 0);
-    return () => window.clearTimeout(timeoutId);
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (photosPollTimeoutRef.current) window.clearTimeout(photosPollTimeoutRef.current);
+    };
   }, []);
 
   async function syncGmail(merchant = gmailMerchant) {
@@ -90,6 +141,81 @@ export default function Home() {
       setGmailMessage(e instanceof Error ? e.message : String(e));
     } finally {
       setGmailLoading(false);
+    }
+  }
+
+  async function importGooglePhotos(sessionId: string, pollIntervalMs = 3000) {
+    try {
+      const res = await fetch("/api/google/photos/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      const data = (await res.json()) as PhotosImportResponse;
+      if (res.status === 409 && data.ready === false) {
+        const deadline = photosPollDeadlineRef.current ?? Date.now() + (data.timeoutMs ?? 300000);
+        photosPollDeadlineRef.current = deadline;
+        if (Date.now() > deadline) {
+          setPhotosBusy(false);
+          setPhotosMessage("Google Photos picker timed out. Start a new pick when you are ready.");
+          return;
+        }
+        setPhotosMessage("Waiting for selected photos...");
+        photosPollTimeoutRef.current = window.setTimeout(
+          () => void importGooglePhotos(sessionId, data.pollIntervalMs ?? pollIntervalMs),
+          data.pollIntervalMs ?? pollIntervalMs,
+        );
+        return;
+      }
+      if (!res.ok) {
+        setPhotosBusy(false);
+        setPhotosMessage(data.error ?? `Google Photos import failed: ${res.status}`);
+        return;
+      }
+      setPhotosBusy(false);
+      setPhotosSessionId(null);
+      setPhotosMessage(
+        `Selected ${data.selected ?? 0} photos, parsed ${data.parsed ?? 0}, duplicates ${
+          data.duplicates ?? 0
+        }, skipped ${data.skipped ?? 0}, failed ${data.failed ?? 0}.`,
+      );
+    } catch (e) {
+      setPhotosBusy(false);
+      setPhotosMessage(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function startGooglePhotosPick() {
+    setPhotosBusy(true);
+    setPhotosMessage(null);
+    if (photosPollTimeoutRef.current) window.clearTimeout(photosPollTimeoutRef.current);
+    photosPollDeadlineRef.current = null;
+    try {
+      const res = await fetch("/api/google/photos/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ maxItemCount: 10 }),
+      });
+      const data = (await res.json()) as PhotosSessionResponse;
+      if (!res.ok || !data.sessionId || !data.pickerUri) {
+        setPhotosBusy(false);
+        setPhotosMessage(data.error ?? `Google Photos picker failed: ${res.status}`);
+        return;
+      }
+      const pickerUri = data.pickerUri.endsWith("/autoclose")
+        ? data.pickerUri
+        : `${data.pickerUri}/autoclose`;
+      window.open(pickerUri, "_blank", "noopener,noreferrer");
+      setPhotosSessionId(data.sessionId);
+      photosPollDeadlineRef.current = Date.now() + (data.timeoutMs ?? 300000);
+      setPhotosMessage("Pick receipt photos in Google Photos, then return here.");
+      photosPollTimeoutRef.current = window.setTimeout(
+        () => void importGooglePhotos(data.sessionId ?? "", data.pollIntervalMs ?? 3000),
+        data.pollIntervalMs ?? 3000,
+      );
+    } catch (e) {
+      setPhotosBusy(false);
+      setPhotosMessage(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -271,6 +397,67 @@ export default function Home() {
             {gmailMessage}
           </div>
         )}
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 space-y-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold">Photo receipts</h2>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              {photosStatus?.connected
+                ? `Google Photos connected${photosStatus.email ? `: ${photosStatus.email}` : "."}`
+                : "Pick receipt photos from Google Photos."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {photosStatus?.connected ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void startGooglePhotosPick()}
+                  disabled={photosBusy}
+                  className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+                >
+                  <Images className="size-4" />
+                  Pick from Google Photos
+                </button>
+                {photosSessionId ? (
+                  <button
+                    type="button"
+                    onClick={() => void importGooglePhotos(photosSessionId)}
+                    disabled={!photosBusy}
+                    className="inline-flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                  >
+                    <RefreshCw className={`size-4 ${photosBusy ? "animate-spin" : ""}`} />
+                    Check selection
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <a
+                href="/api/google/photos/auth?returnTo=/"
+                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+                  photosStatus?.configured
+                    ? "bg-zinc-900 text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900"
+                    : "pointer-events-none border border-zinc-200 text-zinc-400 dark:border-zinc-800"
+                }`}
+              >
+                <Images className="size-4" />
+                Connect Google Photos
+              </a>
+            )}
+          </div>
+        </div>
+        {photosStatus && !photosStatus.configured ? (
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            Add Google OAuth keys and EMAIL_ENCRYPTION_KEY to enable Google Photos.
+          </p>
+        ) : null}
+        {photosMessage ? (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950">
+            {photosMessage}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex gap-2">

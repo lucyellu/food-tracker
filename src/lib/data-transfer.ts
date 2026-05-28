@@ -21,7 +21,7 @@ type DataExport = {
   settings: ImportableSettings | null;
 };
 
-const RECEIPT_SOURCES = new Set(["manual_text", "manual_image", "manual_email_paste", "auto_email"]);
+const RECEIPT_SOURCES = new Set(["manual_text", "manual_image", "manual_email_paste", "auto_email", "google_photos"]);
 const RAW_INPUT_KINDS = new Set(["text", "image", "email"]);
 const PARSE_STATUSES = new Set(["pending", "parsed", "failed"]);
 const ITEM_STATUSES = new Set(["available", "pantry", "fridge", "consumed", "disposed", "unavailable", "refunded"]);

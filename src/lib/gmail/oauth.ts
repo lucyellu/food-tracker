@@ -7,6 +7,8 @@ const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const REQUIRED_GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const MISSING_GMAIL_SCOPE_MESSAGE =
+  "Google connected without Gmail read permission. Remove the inbox connection, connect again, and approve Gmail access.";
 
 export const GMAIL_SCOPES = [
   "openid",
@@ -14,7 +16,7 @@ export const GMAIL_SCOPES = [
   REQUIRED_GMAIL_SCOPE,
 ] as const;
 
-type GoogleTokenResponse = {
+export type GoogleTokenResponse = {
   access_token?: string;
   expires_in?: number;
   refresh_token?: string;
@@ -30,16 +32,18 @@ type GoogleUserInfo = {
   sub?: string;
 };
 
-function hasRequiredGmailScope(scope: string | null | undefined) {
+function hasRequiredScope(scope: string | null | undefined, requiredScope: string) {
   if (!scope) return true;
-  return scope.split(/\s+/).includes(REQUIRED_GMAIL_SCOPE);
+  return scope.split(/\s+/).includes(requiredScope);
 }
 
-function ensureRequiredGmailScope(scope: string | null | undefined) {
-  if (hasRequiredGmailScope(scope)) return;
-  throw new Error(
-    "Google connected without Gmail read permission. Remove the inbox connection, connect again, and approve Gmail access.",
-  );
+function ensureRequiredScope(
+  scope: string | null | undefined,
+  requiredScope: string,
+  message: string,
+) {
+  if (hasRequiredScope(scope, requiredScope)) return;
+  throw new Error(message);
 }
 
 export function isGmailScopeError(message: string) {
@@ -59,13 +63,17 @@ export function getGoogleOAuthConfig(reqUrl: string) {
   return { clientId, clientSecret, redirectUri };
 }
 
-export function buildGoogleAuthUrl(reqUrl: string, state: string) {
+export function buildGoogleAuthUrl(
+  reqUrl: string,
+  state: string,
+  scopes: readonly string[] = GMAIL_SCOPES,
+) {
   const { clientId, redirectUri } = getGoogleOAuthConfig(reqUrl);
   const url = new URL(GOOGLE_AUTH_URL);
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", GMAIL_SCOPES.join(" "));
+  url.searchParams.set("scope", scopes.join(" "));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("include_granted_scopes", "false");
   url.searchParams.set("prompt", "consent select_account");
@@ -73,7 +81,12 @@ export function buildGoogleAuthUrl(reqUrl: string, state: string) {
   return url;
 }
 
-export async function exchangeCodeForTokens(reqUrl: string, code: string) {
+export async function exchangeCodeForTokens(
+  reqUrl: string,
+  code: string,
+  requiredScope = REQUIRED_GMAIL_SCOPE,
+  missingScopeMessage = MISSING_GMAIL_SCOPE_MESSAGE,
+) {
   const { clientId, clientSecret, redirectUri } = getGoogleOAuthConfig(reqUrl);
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
@@ -91,7 +104,7 @@ export async function exchangeCodeForTokens(reqUrl: string, code: string) {
   if (!res.ok || data.error || !data.access_token) {
     throw new Error(data.error_description || data.error || "Google token exchange failed");
   }
-  ensureRequiredGmailScope(data.scope);
+  ensureRequiredScope(data.scope, requiredScope, missingScopeMessage);
   if (!data.refresh_token) {
     throw new Error("Google did not return a refresh token. Reconnect with consent enabled.");
   }
@@ -99,7 +112,11 @@ export async function exchangeCodeForTokens(reqUrl: string, code: string) {
   return data;
 }
 
-export async function refreshGoogleAccessToken(refreshToken: string) {
+export async function refreshGoogleAccessToken(
+  refreshToken: string,
+  requiredScope = REQUIRED_GMAIL_SCOPE,
+  missingScopeMessage = MISSING_GMAIL_SCOPE_MESSAGE,
+) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -121,7 +138,7 @@ export async function refreshGoogleAccessToken(refreshToken: string) {
   if (!res.ok || data.error || !data.access_token) {
     throw new Error(data.error_description || data.error || "Google token refresh failed");
   }
-  ensureRequiredGmailScope(data.scope);
+  ensureRequiredScope(data.scope, requiredScope, missingScopeMessage);
 
   return data.access_token;
 }

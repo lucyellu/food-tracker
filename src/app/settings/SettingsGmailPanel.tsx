@@ -38,12 +38,13 @@ type SyncResponse = {
   needsReconnect?: boolean;
 };
 
-type GmailMerchant = "all" | "tnt" | "pricesmart";
+type GmailMerchant = "all" | "tnt" | "pricesmart" | "ubereats";
 
 const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
   { id: "all", label: "All" },
   { id: "tnt", label: "T&T" },
   { id: "pricesmart", label: "PriceSmart" },
+  { id: "ubereats", label: "Uber Eats" },
 ];
 
 const GMAIL_DAY_WINDOWS = [14, 30, 90, 365] as const;

@@ -1,4 +1,4 @@
-export type GmailMerchantPresetId = "all" | "tnt" | "pricesmart";
+export type GmailMerchantPresetId = "all" | "tnt" | "pricesmart" | "ubereats";
 
 export type GmailMerchantPreset = {
   id: GmailMerchantPresetId;
@@ -32,6 +32,17 @@ export const GMAIL_MERCHANT_PRESETS: GmailMerchantPreset[] = [
       /ORDER\s+#\s*([A-Z0-9-]+)/i,
       /Order\s+Number\s*:?\s*([A-Z0-9-]+)/i,
       /Receipt\s+#\s*([A-Z0-9-]+)/i,
+    ],
+  },
+  {
+    id: "ubereats",
+    label: "Uber Eats",
+    query: '(from:uber.com OR from:ubereats.com OR "Uber Eats" OR "Uber Receipt" OR "Order total")',
+    vendorPatterns: [/uber\s*eats/i, /\bubereats\b/i],
+    orderPatterns: [
+      /Order\s*#\s*([A-Z0-9-]+)/i,
+      /Order\s+number\s*:?\s*([A-Z0-9-]+)/i,
+      /Receipt\s*#\s*([A-Z0-9-]+)/i,
     ],
   },
 ];

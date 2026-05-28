@@ -18,7 +18,7 @@ export const receipts = pgTable(
     purchasedAt: text("purchased_at"),
     total: doublePrecision("total"),
     source: text("source", {
-      enum: ["manual_text", "manual_image", "manual_email_paste", "auto_email"],
+      enum: ["manual_text", "manual_image", "manual_email_paste", "auto_email", "google_photos"],
     }).notNull(),
     sourceMessageId: text("source_message_id"),
     rawInputKind: text("raw_input_kind", { enum: ["text", "image", "email"] }).notNull(),
@@ -185,6 +185,19 @@ export const emailIngestLog = pgTable(
   ],
 );
 
+export const googlePhotoConnections = pgTable("google_photo_connections", {
+  id: integer("id").primaryKey().default(1),
+  email: text("email"),
+  secretEncrypted: text("secret_encrypted").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const usdaCache = pgTable("usda_cache", {
   fdcId: integer("fdc_id").primaryKey(),
   payloadJson: text("payload_json").notNull(),
@@ -203,3 +216,4 @@ export type ConsumptionLog = typeof consumptionLogs.$inferSelect;
 export type NewConsumptionLog = typeof consumptionLogs.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
 export type EmailAccount = typeof emailAccounts.$inferSelect;
+export type GooglePhotoConnection = typeof googlePhotoConnections.$inferSelect;
