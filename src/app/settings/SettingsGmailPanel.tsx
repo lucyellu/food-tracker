@@ -10,6 +10,10 @@ type GmailStatus = {
   query: string | null;
   error?: string;
 };
+type GmailSyncError = {
+  error?: string;
+  needsReconnect?: boolean;
+};
 
 type GmailMerchant = "all" | "tnt" | "pricesmart";
 
@@ -78,7 +82,12 @@ export function SettingsGmailPanel() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setMessage(data.error ?? `Inbox sync failed: ${res.status}`);
+        const errorData = data as GmailSyncError;
+        setMessage(
+          errorData.needsReconnect
+            ? errorData.error ?? "Google needs to be reconnected with Gmail read permission."
+            : errorData.error ?? `Inbox sync failed: ${res.status}`,
+        );
         return;
       }
       setMessage(
@@ -99,7 +108,7 @@ export function SettingsGmailPanel() {
         <div>
           <h2 className="text-base font-semibold">Google inbox</h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
-            Connect Gmail to find grocery receipt emails, then remove the connection here whenever you want.
+            Connect one Gmail inbox at a time to find grocery receipt emails, then remove the connection here whenever you want.
           </p>
           <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
             {status?.connected ? (

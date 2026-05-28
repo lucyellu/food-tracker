@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processGmailMerchantInbox } from "@/lib/gmail/messages";
 import { getGmailMerchantPreset, type GmailMerchantPresetId } from "@/lib/gmail/merchant-presets";
+import { isGmailScopeError } from "@/lib/gmail/oauth";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("gmail sync error:", msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    const needsReconnect = isGmailScopeError(msg);
+    return NextResponse.json({ error: msg, needsReconnect }, { status: needsReconnect ? 401 : 500 });
   }
 }

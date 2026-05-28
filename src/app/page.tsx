@@ -12,6 +12,10 @@ type GmailStatus = {
   query: string | null;
   error?: string;
 };
+type GmailSyncError = {
+  error?: string;
+  needsReconnect?: boolean;
+};
 type GmailMerchant = "all" | "tnt" | "pricesmart";
 
 const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
@@ -69,7 +73,12 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setGmailMessage(data.error ?? `Gmail sync failed: ${res.status}`);
+        const errorData = data as GmailSyncError;
+        setGmailMessage(
+          errorData.needsReconnect
+            ? errorData.error ?? "Google needs to be reconnected with Gmail read permission."
+            : errorData.error ?? `Gmail sync failed: ${res.status}`,
+        );
         return;
       }
       setGmailMessage(
@@ -174,7 +183,7 @@ export default function Home() {
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
               {gmailStatus?.connected
                 ? `Connected${gmailStatus.email ? ` as ${gmailStatus.email}` : ""}.`
-                : "Connect a Gmail inbox and import likely receipt emails."}
+                : "Connect one Gmail inbox at a time and import likely receipt emails."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

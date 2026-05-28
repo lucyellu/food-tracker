@@ -10,7 +10,7 @@ import {
   gmailQueryForPreset,
   type GmailMerchantPresetId,
 } from "./merchant-presets";
-import { getStoredGoogleConnection, refreshGoogleAccessToken } from "./oauth";
+import { getStoredGoogleConnection, isGmailScopeError, refreshGoogleAccessToken } from "./oauth";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const DEFAULT_QUERY = "newer_than:90d (receipt OR order OR invoice)";
@@ -89,6 +89,11 @@ async function gmailFetch<T>(path: string, accessToken: string, params?: Record<
   if (!res.ok) {
     const message =
       typeof data?.error?.message === "string" ? data.error.message : "Gmail API request failed";
+    if (isGmailScopeError(message)) {
+      throw new Error(
+        "Google inbox connection is missing Gmail read permission. Remove it, connect again, choose the account, and approve Gmail access.",
+      );
+    }
     throw new Error(message);
   }
   return data as T;
