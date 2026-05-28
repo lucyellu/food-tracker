@@ -81,13 +81,9 @@ export function inferPurchasedDateFromText(text: string | null | undefined) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+  const receiptLines = lines.filter((line) => !/^date\s*:/i.test(line));
 
-  for (const line of lines) {
-    const emailDate = parseEmailDateHeader(line);
-    if (emailDate) return emailDate;
-  }
-
-  const preferredLines = lines.filter((line) =>
+  const preferredLines = receiptLines.filter((line) =>
     /\b(order(?:ed)?|purchase(?:d)?|transaction|receipt|delivery|date|time|placed)\b/i.test(line),
   );
   for (const line of preferredLines) {
@@ -95,9 +91,14 @@ export function inferPurchasedDateFromText(text: string | null | undefined) {
     if (parsed) return parsed;
   }
 
-  for (const line of lines) {
+  for (const line of receiptLines) {
     const parsed = parseExplicitDate(line);
     if (parsed) return parsed;
+  }
+
+  for (const line of lines) {
+    const emailDate = parseEmailDateHeader(line);
+    if (emailDate) return emailDate;
   }
 
   return null;

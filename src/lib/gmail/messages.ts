@@ -45,6 +45,7 @@ type GmailMessagePart = {
 type GmailMessage = {
   id: string;
   threadId: string;
+  internalDate?: string;
   snippet?: string;
   payload?: GmailMessagePart;
 };
@@ -140,6 +141,22 @@ function getHeader(message: GmailMessage, name: string) {
   return headers.find((header) => header.name.toLowerCase() === name.toLowerCase())?.value ?? null;
 }
 
+function messageDate(message: GmailMessage) {
+  const headerDate = getHeader(message, "Date");
+  if (headerDate) return headerDate;
+  if (!message.internalDate) return "";
+  const date = new Date(Number(message.internalDate));
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function messageReferenceText(message: GmailMessage) {
+  return [
+    `From: ${getHeader(message, "From") ?? ""}`,
+    `Subject: ${getHeader(message, "Subject") ?? ""}`,
+    `Date: ${messageDate(message)}`,
+  ].join("\n");
+}
+
 function extractMessageText(message: GmailMessage) {
   const parts = collectParts(message.payload);
   const plain = parts
@@ -154,9 +171,7 @@ function extractMessageText(message: GmailMessage) {
   if (!body) return null;
 
   return [
-    `From: ${getHeader(message, "From") ?? ""}`,
-    `Subject: ${getHeader(message, "Subject") ?? ""}`,
-    `Date: ${getHeader(message, "Date") ?? ""}`,
+    messageReferenceText(message),
     "",
     body,
   ].join("\n");
@@ -210,14 +225,19 @@ async function fetchPartBuffer(messageId: string, part: GmailMessagePart, access
   return buffer;
 }
 
-function textCandidate(id: string, label: string, text: string | null | undefined): ReceiptCandidate | null {
+function textCandidate(
+  id: string,
+  label: string,
+  text: string | null | undefined,
+  referenceText?: string,
+): ReceiptCandidate | null {
   const trimmed = text?.trim();
   if (!trimmed) return null;
   return {
     id,
     label,
     text: trimmed,
-    rawInputRef: trimmed,
+    rawInputRef: [referenceText, trimmed].filter(Boolean).join("\n\n"),
     input: { kind: "text", text: trimmed },
   };
 }
@@ -227,12 +247,15 @@ function fileCandidate(
   label: string,
   buffer: Buffer,
   mimeType: string,
+  referenceText?: string,
 ): ReceiptCandidate {
   const bytes = new Uint8Array(buffer);
   return {
     id,
     label,
-    rawInputRef: `${label} (${buffer.byteLength} bytes, ${mimeType})`,
+    rawInputRef: [referenceText, `${label} (${buffer.byteLength} bytes, ${mimeType})`]
+      .filter(Boolean)
+      .join("\n\n"),
     input:
       mimeType === "application/pdf"
         ? { kind: "pdf", bytes }
@@ -246,11 +269,14 @@ async function candidatesFromForwardedEmail(
   buffer: Buffer,
 ): Promise<ReceiptCandidate[]> {
   const parsed = await simpleParser(buffer);
-  const htmlText = typeof parsed.html === "string" ? parseHtml(parsed.html).structuredText : "";
-  const body = [
+  const referenceText = [
     `From: ${parsed.from?.text ?? ""}`,
     `Subject: ${parsed.subject ?? ""}`,
     `Date: ${parsed.date?.toISOString() ?? ""}`,
+  ].join("\n");
+  const htmlText = typeof parsed.html === "string" ? parseHtml(parsed.html).structuredText : "";
+  const body = [
+    referenceText,
     "",
     parsed.text,
     htmlText,
@@ -267,12 +293,12 @@ async function candidatesFromForwardedEmail(
     const attachmentId = `${id}:eml-attachment-${index + 1}`;
     if (attachment.contentType === "text/plain" || attachment.contentType === "text/html") {
       const text = textFromBuffer(attachment.content, attachment.contentType);
-      const candidate = textCandidate(attachmentId, attachmentLabel, text);
+      const candidate = textCandidate(attachmentId, attachmentLabel, text, referenceText);
       if (candidate) candidates.push(candidate);
     } else if (attachment.contentType === "application/pdf") {
-      candidates.push(fileCandidate(attachmentId, attachmentLabel, attachment.content, "application/pdf"));
+      candidates.push(fileCandidate(attachmentId, attachmentLabel, attachment.content, "application/pdf", referenceText));
     } else if (attachment.contentType.startsWith("image/")) {
-      candidates.push(fileCandidate(attachmentId, attachmentLabel, attachment.content, attachment.contentType));
+      candidates.push(fileCandidate(attachmentId, attachmentLabel, attachment.content, attachment.contentType, referenceText));
     }
   }
 
@@ -281,6 +307,7 @@ async function candidatesFromForwardedEmail(
 
 async function extractReceiptCandidates(message: GmailMessage, accessToken: string) {
   const candidates: ReceiptCandidate[] = [];
+  const referenceText = messageReferenceText(message);
   const body = textCandidate("body", "email body", extractMessageText(message));
   if (body) candidates.push(body);
 
@@ -299,12 +326,12 @@ async function extractReceiptCandidates(message: GmailMessage, accessToken: stri
     if (isForwardedEmail(part)) {
       candidates.push(...(await candidatesFromForwardedEmail(id, label, buffer)));
     } else if (isTextAttachment(part)) {
-      const candidate = textCandidate(id, label, textFromBuffer(buffer, part.mimeType));
+      const candidate = textCandidate(id, label, textFromBuffer(buffer, part.mimeType), referenceText);
       if (candidate) candidates.push(candidate);
     } else if (isPdfAttachment(part)) {
-      candidates.push(fileCandidate(id, label, buffer, "application/pdf"));
+      candidates.push(fileCandidate(id, label, buffer, "application/pdf", referenceText));
     } else if (isImageAttachment(part)) {
-      candidates.push(fileCandidate(id, label, buffer, part.mimeType || "image/jpeg"));
+      candidates.push(fileCandidate(id, label, buffer, part.mimeType || "image/jpeg", referenceText));
     }
   }
 
@@ -338,6 +365,27 @@ export async function processGmailMerchantInbox({
 
 function scopedGmailSourceId(connection: GmailAccountConnection, id: string) {
   return connection.accountId ? `email:${connection.accountId}:gmail:${id}` : id;
+}
+
+function isSameGmailSourceId(sourceMessageId: string | null, rawGmailId: string, scopedGmailId: string) {
+  return (
+    sourceMessageId === rawGmailId ||
+    sourceMessageId === scopedGmailId ||
+    sourceMessageId?.endsWith(`:gmail:${rawGmailId}`)
+  );
+}
+
+async function findExistingGmailSourceReceipt(rawGmailId: string, scopedGmailId: string) {
+  const candidates = await db
+    .select({
+      id: schema.receipts.id,
+      sourceMessageId: schema.receipts.sourceMessageId,
+    })
+    .from(schema.receipts);
+
+  return candidates.find((receipt) =>
+    isSameGmailSourceId(receipt.sourceMessageId, rawGmailId, scopedGmailId),
+  ) ?? null;
 }
 
 export async function processGmailAccount(
@@ -406,11 +454,10 @@ export async function processGmailAccount(
         const rawCandidateMessageId =
           candidate.id === "body" ? item.id : `${item.id}:${candidate.id}`;
         const candidateMessageId = scopedGmailSourceId(connection, rawCandidateMessageId);
-        const [existing] = await db
-          .select({ id: schema.receipts.id })
-          .from(schema.receipts)
-          .where(eq(schema.receipts.sourceMessageId, candidateMessageId))
-          .limit(1);
+        const existing = await findExistingGmailSourceReceipt(
+          rawCandidateMessageId,
+          candidateMessageId,
+        );
         if (existing) {
           result.duplicates += 1;
           result.skipped += 1;

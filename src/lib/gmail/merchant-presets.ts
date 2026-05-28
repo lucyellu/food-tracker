@@ -55,6 +55,10 @@ export function normalizeOrderToken(value: string) {
   return value.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
 }
 
+function isPlausibleOrderToken(value: string) {
+  return value.length >= 5 && /[0-9]/.test(value);
+}
+
 export function extractMerchantOrderKey(text: string, presetId: GmailMerchantPresetId = "all") {
   const presets = presetId === "all" ? GMAIL_MERCHANT_PRESETS.filter((preset) => preset.id !== "all") : [getGmailMerchantPreset(presetId)];
 
@@ -65,7 +69,7 @@ export function extractMerchantOrderKey(text: string, presetId: GmailMerchantPre
     for (const pattern of preset.orderPatterns) {
       const match = text.match(pattern);
       const orderNumber = match?.[1] ? normalizeOrderToken(match[1]) : null;
-      if (orderNumber) return `${preset.id}:order:${orderNumber}`;
+      if (orderNumber && isPlausibleOrderToken(orderNumber)) return `${preset.id}:order:${orderNumber}`;
     }
   }
 
