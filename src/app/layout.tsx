@@ -27,6 +27,9 @@ export default function RootLayout({
               <Link href="/receipts" className="hover:text-zinc-900 dark:hover:text-zinc-100">
                 All receipts
               </Link>
+              <Link href="/receipts/calendar" className="hover:text-zinc-900 dark:hover:text-zinc-100">
+                Calendar
+              </Link>
               <Link href="/settings" className="hover:text-zinc-900 dark:hover:text-zinc-100">
                 Settings
               </Link>
