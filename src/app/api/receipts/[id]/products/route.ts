@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { enrichTntProductsForReceipt } from "@/lib/products/tnt";
+import { enrichProductsForReceipt } from "@/lib/products/tnt";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -19,7 +19,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   if (!receipt) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   try {
-    const result = await enrichTntProductsForReceipt(receiptId);
+    const result = await enrichProductsForReceipt(receiptId);
     return NextResponse.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -73,7 +73,7 @@ export default function Home() {
         return;
       }
       setGmailMessage(
-        `Scanned ${data.scanned}, parsed ${data.parsed}, duplicates ${data.duplicates ?? 0}, skipped ${data.skipped}, failed ${data.failed}.`,
+        `Scanned ${data.scanned} emails, checked ${data.candidates ?? data.scanned} bodies/attachments (${data.attachments ?? 0} attachments), parsed ${data.parsed}, duplicates ${data.duplicates ?? 0}, skipped ${data.skipped}, failed ${data.failed}.`,
       );
     } catch (e) {
       setGmailMessage(e instanceof Error ? e.message : String(e));

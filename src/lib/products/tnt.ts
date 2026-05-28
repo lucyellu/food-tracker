@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 
 const TNT_GRAPHQL_URL = "https://www.tntsupermarket.com/graphql";
+const CANNABIS_PRODUCT_RE =
+  /\b(dutch\s*love|cannabis|thc|cbd|cbn|cbg|thca|cbda|terpene|pre[-\s]?roll|preroll|flower|indica|sativa|hybrid|rosin|hash|vape|cart|edible|gumm(?:y|ies)|joint)\b/i;
 
 type TntProduct = {
   sku: string;
@@ -34,6 +36,28 @@ function tntProductUrl(urlKey: string | null | undefined) {
 
 function tntSearchUrl(query: string) {
   return `https://www.tntsupermarket.com/eng/catalogsearch/result/?q=${encodeURIComponent(query)}`;
+}
+
+function dutchLoveSearchUrl(query: string) {
+  return `https://dutch.love/search?q=${encodeURIComponent(query)}`;
+}
+
+function cleanProductQuery(item: typeof schema.lineItems.$inferSelect) {
+  return (item.retailerSku || item.rawName.replace(/^\[REFUNDED\]\s*/i, "")).trim() || item.rawName;
+}
+
+function cannabisSignalForItem(item: typeof schema.lineItems.$inferSelect, receiptVendor: string | null | undefined) {
+  return `${receiptVendor ?? ""} ${item.rawName} ${item.normalizedName ?? ""} ${item.brand ?? ""} ${
+    item.productSource ?? ""
+  }`;
+}
+
+function isCannabisProduct(item: typeof schema.lineItems.$inferSelect, receiptVendor: string | null | undefined) {
+  return CANNABIS_PRODUCT_RE.test(cannabisSignalForItem(item, receiptVendor));
+}
+
+function isDutchLoveProduct(item: typeof schema.lineItems.$inferSelect, receiptVendor: string | null | undefined) {
+  return /\bdutch\s*love\b/i.test(cannabisSignalForItem(item, receiptVendor));
 }
 
 async function searchTntProducts(query: string) {
@@ -84,17 +108,39 @@ function bestProduct(items: TntProduct[], sku: string | null, rawName: string) {
   );
 }
 
-export async function enrichTntProductsForReceipt(receiptId: number) {
+export async function enrichProductsForReceipt(receiptId: number) {
+  const receipt = await db.query.receipts.findFirst({
+    where: eq(schema.receipts.id, receiptId),
+  });
   const items = await db
     .select()
     .from(schema.lineItems)
     .where(eq(schema.lineItems.receiptId, receiptId));
 
-  const result = { total: items.length, linked: 0, fallbackLinks: 0, failed: 0 };
+  const result = { total: items.length, linked: 0, fallbackLinks: 0, failed: 0, skipped: 0 };
 
   for (const item of items) {
     const sku = item.retailerSku;
-    const query = sku || item.rawName.replace(/^\[REFUNDED\]\s*/i, "");
+    const query = cleanProductQuery(item);
+
+    if (isDutchLoveProduct(item, receipt?.vendor)) {
+      await db
+        .update(schema.lineItems)
+        .set({
+          productSource: "Dutch Love",
+          productUrl: dutchLoveSearchUrl(query),
+        })
+        .where(eq(schema.lineItems.id, item.id));
+
+      if (item.productImageUrl) result.linked += 1;
+      else result.fallbackLinks += 1;
+      continue;
+    }
+
+    if (isCannabisProduct(item, receipt?.vendor)) {
+      result.skipped += 1;
+      continue;
+    }
 
     try {
       const products = await searchTntProducts(query);
@@ -127,3 +173,5 @@ export async function enrichTntProductsForReceipt(receiptId: number) {
 
   return result;
 }
+
+export const enrichTntProductsForReceipt = enrichProductsForReceipt;
