@@ -3,6 +3,8 @@ import { simpleParser } from "mailparser";
 import { parse as parseHtml } from "node-html-parser";
 import { db, schema } from "@/db/client";
 import { parseReceipt, type ParseInput } from "@/lib/llm/parse";
+import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
+import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
 import {
   extractMerchantOrderKey,
@@ -460,6 +462,23 @@ export async function processGmailAccount(
             });
             continue;
           }
+        }
+
+        const purchasedAt = resolveReceiptPurchasedDate(parsed.purchased_at, candidate.rawInputRef);
+        const duplicateReceipt = await findDuplicateParsedReceipt(parsed, purchasedAt);
+        if (duplicateReceipt) {
+          result.duplicates += 1;
+          result.skipped += 1;
+          await logEmailIngest({
+            emailAccountId: connection.accountId,
+            fromAddress: getHeader(message, "From"),
+            subject: getHeader(message, "Subject"),
+            messageId: candidateMessageId,
+            status: "skipped_not_receipt",
+            errorText: `Duplicate receipt content for receipt ${duplicateReceipt.id}`,
+            receiptId: duplicateReceipt.id,
+          });
+          continue;
         }
 
         const receipt = await persistParsedReceipt({

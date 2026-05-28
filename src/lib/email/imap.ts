@@ -2,6 +2,8 @@ import { ImapFlow } from "imapflow";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { parseReceipt } from "@/lib/llm/parse";
+import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
+import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
 import {
   extractMerchantOrderKey,
@@ -246,6 +248,23 @@ export async function processImapAccount(
                 });
                 continue;
               }
+            }
+
+            const purchasedAt = resolveReceiptPurchasedDate(parsed.purchased_at, candidate.rawInputRef);
+            const duplicateReceipt = await findDuplicateParsedReceipt(parsed, purchasedAt);
+            if (duplicateReceipt) {
+              result.duplicates += 1;
+              result.skipped += 1;
+              await logEmailIngest({
+                emailAccountId: connection.accountId,
+                fromAddress: parsedEmail.fromAddress,
+                subject: parsedEmail.subject,
+                messageId: candidateMessageId,
+                status: "skipped_not_receipt",
+                errorText: `Duplicate receipt content for receipt ${duplicateReceipt.id}`,
+                receiptId: duplicateReceipt.id,
+              });
+              continue;
             }
 
             const receipt = await persistParsedReceipt({

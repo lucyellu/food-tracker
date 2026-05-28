@@ -26,10 +26,10 @@ export const GMAIL_MERCHANT_PRESETS: GmailMerchantPreset[] = [
   {
     id: "pricesmart",
     label: "PriceSmart Foods",
-    query: '("PriceSmart" OR "PriceSmart Foods" OR from:pricesmartfoods.com OR from:saveonfoods.com)',
+    query: '("PriceSmart" OR "PriceSmart Foods" OR from:pricesmartfoods.com OR from:e-pricesmartfoods.com OR from:saveonfoods.com)',
     vendorPatterns: [/pricesmart/i, /price smart/i],
     orderPatterns: [
-      /ORDER\s+#\s*([A-Z0-9-]+)/i,
+      /ORDER\s*#\s*:?\s*([A-Z0-9-]+)/i,
       /Order\s+Number\s*:?\s*([A-Z0-9-]+)/i,
       /Receipt\s+#\s*([A-Z0-9-]+)/i,
     ],

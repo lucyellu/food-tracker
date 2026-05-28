@@ -102,3 +102,10 @@ export function inferPurchasedDateFromText(text: string | null | undefined) {
 
   return null;
 }
+
+export function resolveReceiptPurchasedDate(
+  parsedPurchasedAt: string | null | undefined,
+  rawInputRef: string | null | undefined,
+) {
+  return normalizeReceiptDate(parsedPurchasedAt) ?? inferPurchasedDateFromText(rawInputRef);
+}

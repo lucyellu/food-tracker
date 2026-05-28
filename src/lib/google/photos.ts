@@ -8,6 +8,8 @@ import {
   type GoogleTokenResponse,
 } from "@/lib/gmail/oauth";
 import { parseReceipt } from "@/lib/llm/parse";
+import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
+import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
 import { decryptSecret, encryptSecret } from "@/lib/security/encryption";
 
@@ -269,11 +271,20 @@ export async function importGooglePhotosPickerSession(sessionId: string): Promis
         continue;
       }
 
+      const rawInputRef = `${item.mediaFile?.filename ?? item.id} (${downloaded.bytes.byteLength} bytes, ${downloaded.mimeType})`;
+      const purchasedAt = resolveReceiptPurchasedDate(parsed.purchased_at, rawInputRef);
+      const duplicateReceipt = await findDuplicateParsedReceipt(parsed, purchasedAt);
+      if (duplicateReceipt) {
+        result.duplicates += 1;
+        result.skipped += 1;
+        continue;
+      }
+
       const receipt = await persistParsedReceipt({
         parsed,
         source: "google_photos",
         rawInputKind: "image",
-        rawInputRef: `${item.mediaFile?.filename ?? item.id} (${downloaded.bytes.byteLength} bytes, ${downloaded.mimeType})`,
+        rawInputRef,
         sourceMessageId,
       });
       result.parsed += 1;

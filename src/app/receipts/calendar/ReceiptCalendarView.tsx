@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Search, ShoppingBag, Utensils } from "lucide-react";
 import { useMemo, useState } from "react";
+import { receiptDedupeSignature } from "@/lib/receipts/signature";
 
 type DateMode = "bought" | "consumed";
 
@@ -28,6 +29,11 @@ export type CalendarItem = {
   receiptVendor: string | null;
   receiptPurchasedAt: string | null;
   receiptCreatedAt: string | null;
+  totalGrams: number | null;
+  calories: number | null;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
 };
 
 export type CalendarLog = {
@@ -46,6 +52,7 @@ type CalendarEvent =
       date: string;
       kind: "receipt";
       receipt: CalendarReceipt;
+      duplicateCount: number;
     }
   | {
       id: string;
@@ -60,6 +67,13 @@ type ItemRow = {
   date: string | null;
   item: CalendarItem;
   log: CalendarLog | null;
+};
+
+type MacroTotals = {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -125,12 +139,54 @@ function formatQty(quantity: number, unit: string) {
   return `${amount} ${unit}`;
 }
 
+function formatMacro(value: number) {
+  return value >= 100 ? value.toFixed(0) : value.toFixed(1).replace(/\.0$/, "");
+}
+
 function eventDateForReceipt(receipt: CalendarReceipt) {
   return datePart(receipt.purchasedAt);
 }
 
 function boughtDateForItem(item: CalendarItem) {
   return datePart(item.receiptPurchasedAt);
+}
+
+function emptyMacros(): MacroTotals {
+  return { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
+}
+
+function addItemMacros(target: MacroTotals, item: CalendarItem, factor: number) {
+  target.calories += (item.calories ?? 0) * factor;
+  target.proteinG += (item.proteinG ?? 0) * factor;
+  target.carbsG += (item.carbsG ?? 0) * factor;
+  target.fatG += (item.fatG ?? 0) * factor;
+}
+
+function logFactor(item: CalendarItem, log: CalendarLog | null) {
+  if (!log) return 1;
+  if (log.unit === "g" || log.unit === "100g") {
+    const grams = log.unit === "g" ? log.amount : log.amount * 100;
+    return item.totalGrams && item.totalGrams > 0 ? grams / item.totalGrams : grams / 100;
+  }
+  return item.quantity > 0 ? log.amount / item.quantity : log.amount;
+}
+
+function eventMacros(event: CalendarEvent) {
+  const totals = emptyMacros();
+  if (event.kind !== "log") return totals;
+  addItemMacros(totals, event.item, logFactor(event.item, event.log));
+  return totals;
+}
+
+function eventsMacros(events: CalendarEvent[]) {
+  return events.reduce((totals, event) => {
+    const macros = eventMacros(event);
+    totals.calories += macros.calories;
+    totals.proteinG += macros.proteinG;
+    totals.carbsG += macros.carbsG;
+    totals.fatG += macros.fatG;
+    return totals;
+  }, emptyMacros());
 }
 
 function statusLabel(status: string) {
@@ -172,6 +228,15 @@ export function ReceiptCalendarView({
   const query = search.trim().toLowerCase();
 
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const itemsByReceiptId = useMemo(() => {
+    const map = new Map<number, CalendarItem[]>();
+    for (const item of items) {
+      const receiptItems = map.get(item.receiptId) ?? [];
+      receiptItems.push(item);
+      map.set(item.receiptId, receiptItems);
+    }
+    return map;
+  }, [items]);
   const logsByItemId = useMemo(() => {
     const map = new Map<number, CalendarLog[]>();
     for (const log of logs) {
@@ -182,23 +247,51 @@ export function ReceiptCalendarView({
     return map;
   }, [logs]);
 
-  const receiptEvents = useMemo<CalendarEvent[]>(
-    () =>
-      receipts.flatMap((receipt) => {
+  const boughtDedupe = useMemo(() => {
+    const bySignature = new Map<
+      string,
+      { event: Extract<CalendarEvent, { kind: "receipt" }>; receiptIds: number[] }
+    >();
+    const undated: CalendarReceipt[] = [];
+
+    for (const receipt of receipts) {
         const date = eventDateForReceipt(receipt);
-        return date
-          ? [
-              {
-                id: `receipt-${receipt.id}`,
-                kind: "receipt" as const,
-                receipt,
-                date,
-              },
-            ]
-          : [];
-      }),
-    [receipts],
-  );
+      if (!date) {
+        undated.push(receipt);
+        continue;
+      }
+
+      const key =
+        receiptDedupeSignature(receipt, itemsByReceiptId.get(receipt.id) ?? []) ??
+        `receipt:${receipt.id}`;
+      const existing = bySignature.get(key);
+      if (existing) {
+        existing.receiptIds.push(receipt.id);
+        existing.event.duplicateCount += 1;
+        continue;
+      }
+
+      bySignature.set(key, {
+        event: {
+          id: `receipt-${receipt.id}`,
+          kind: "receipt",
+          receipt,
+          date,
+          duplicateCount: 0,
+        },
+        receiptIds: [receipt.id],
+      });
+    }
+
+    return {
+      events: Array.from(bySignature.values()).map((entry) => entry.event),
+      primaryReceiptIds: new Set(Array.from(bySignature.values()).map((entry) => entry.event.receipt.id)),
+      undated,
+    };
+  }, [itemsByReceiptId, receipts]);
+
+  const receiptEvents = boughtDedupe.events;
+  const primaryBoughtReceiptIds = boughtDedupe.primaryReceiptIds;
 
   const consumedEvents = useMemo<CalendarEvent[]>(() => {
     const events: CalendarEvent[] = [];
@@ -240,6 +333,7 @@ export function ReceiptCalendarView({
     const rows: ItemRow[] = [];
     if (mode === "bought") {
       for (const item of items) {
+        if (!primaryBoughtReceiptIds.has(item.receiptId)) continue;
         rows.push({ id: `item-${item.id}`, date: boughtDateForItem(item), item, log: null });
       }
     } else {
@@ -262,7 +356,7 @@ export function ReceiptCalendarView({
         return `${row.item.rawName} ${row.item.receiptVendor ?? ""} ${row.log?.note ?? ""}`.toLowerCase().includes(query);
       })
       .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.item.rawName.localeCompare(b.item.rawName));
-  }, [items, logsByItemId, mode, query]);
+  }, [items, logsByItemId, mode, primaryBoughtReceiptIds, query]);
 
   const days = calendarDays(cursor);
   const selectedMonth = cursor.slice(0, 7);
@@ -270,6 +364,10 @@ export function ReceiptCalendarView({
   const receiptSpend = mode === "bought"
     ? monthEvents.reduce((sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0), 0)
     : 0;
+  const consumedMonthMacros = mode === "consumed" ? eventsMacros(monthEvents) : emptyMacros();
+  const undatedReceipts = boughtDedupe.undated.filter((receipt) =>
+    eventMatchesSearch({ id: `undated-${receipt.id}`, kind: "receipt", receipt, duplicateCount: 0, date: "" }, query),
+  );
 
   return (
     <div className="space-y-5">
@@ -321,10 +419,16 @@ export function ReceiptCalendarView({
           <div className="mt-2 text-xl font-semibold">{monthEvents.length}</div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Spend" : "Items"}</div>
+          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Spend" : "Calories"}</div>
           <div className="mt-2 text-xl font-semibold">
-            {mode === "bought" ? formatMoney(receiptSpend) || "$0.00" : new Set(monthEvents.map((event) => event.kind === "log" ? event.item.id : event.id)).size}
+            {mode === "bought" ? formatMoney(receiptSpend) || "$0.00" : formatMacro(consumedMonthMacros.calories)}
           </div>
+          {mode === "consumed" ? (
+            <div className="mt-1 text-xs text-zinc-500">
+              P {formatMacro(consumedMonthMacros.proteinG)}g · C {formatMacro(consumedMonthMacros.carbsG)}g · F{" "}
+              {formatMacro(consumedMonthMacros.fatG)}g
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -378,6 +482,7 @@ export function ReceiptCalendarView({
                   (sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0),
                   0,
                 );
+                const dayMacros = mode === "consumed" ? eventsMacros(dayEvents) : emptyMacros();
                 return (
                   <div
                     key={day}
@@ -398,6 +503,15 @@ export function ReceiptCalendarView({
                     {mode === "bought" && total > 0 ? (
                       <div className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">{formatMoney(total)}</div>
                     ) : null}
+                    {mode === "consumed" && dayMacros.calories > 0 ? (
+                      <div className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
+                        <div className="font-medium">{formatMacro(dayMacros.calories)} cal</div>
+                        <div>
+                          P {formatMacro(dayMacros.proteinG)}g · C {formatMacro(dayMacros.carbsG)}g · F{" "}
+                          {formatMacro(dayMacros.fatG)}g
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mt-2 space-y-1">
                       {dayEvents.slice(0, 4).map((event) =>
                         event.kind === "receipt" ? (
@@ -407,6 +521,7 @@ export function ReceiptCalendarView({
                             className="block truncate rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                           >
                             {event.receipt.vendor ?? "Unknown"} {formatMoney(event.receipt.total)}
+                            {event.duplicateCount > 0 ? ` (${event.duplicateCount + 1} emails)` : ""}
                           </Link>
                         ) : (
                           <Link
@@ -429,6 +544,33 @@ export function ReceiptCalendarView({
           </div>
         </div>
       </section>
+
+      {mode === "bought" && undatedReceipts.length > 0 ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-900 dark:bg-amber-950/30">
+          <div className="font-semibold text-amber-900 dark:text-amber-200">
+            Missing purchase date
+          </div>
+          <div className="mt-1 text-amber-800 dark:text-amber-300">
+            {undatedReceipts.length} receipt{undatedReceipts.length === 1 ? "" : "s"} could not be placed on the calendar because no purchase date was visible.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {undatedReceipts.slice(0, 8).map((receipt) => (
+              <Link
+                key={receipt.id}
+                href={`/receipts/${receipt.id}`}
+                className="rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900/40"
+              >
+                {receipt.vendor ?? "Unknown"} {formatMoney(receipt.total)}
+              </Link>
+            ))}
+            {undatedReceipts.length > 8 ? (
+              <span className="px-2 py-1 text-xs text-amber-800 dark:text-amber-300">
+                +{undatedReceipts.length - 8} more
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">

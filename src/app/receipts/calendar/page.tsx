@@ -48,9 +48,15 @@ async function getCalendarData() {
         receiptPurchasedAt: schema.receipts.purchasedAt,
         receiptRawInputRef: schema.receipts.rawInputRef,
         receiptCreatedAt: schema.receipts.createdAt,
+        totalGrams: schema.nutritionFacts.totalGrams,
+        calories: schema.nutritionFacts.calories,
+        proteinG: schema.nutritionFacts.proteinG,
+        carbsG: schema.nutritionFacts.carbsG,
+        fatG: schema.nutritionFacts.fatG,
       })
       .from(schema.lineItems)
       .innerJoin(schema.receipts, eq(schema.receipts.id, schema.lineItems.receiptId))
+      .leftJoin(schema.nutritionFacts, eq(schema.nutritionFacts.lineItemId, schema.lineItems.id))
       .orderBy(desc(schema.receipts.createdAt), asc(schema.lineItems.id)),
     db
       .select({
@@ -91,6 +97,11 @@ async function getCalendarData() {
         receiptVendor: item.receiptVendor,
         receiptPurchasedAt: normalizeReceiptDate(item.receiptPurchasedAt) ?? inferPurchasedDateFromText(item.receiptRawInputRef),
         receiptCreatedAt: toIso(item.receiptCreatedAt),
+        totalGrams: item.totalGrams,
+        calories: item.calories,
+        proteinG: item.proteinG,
+        carbsG: item.carbsG,
+        fatG: item.fatG,
       }),
     ),
     logs: logs satisfies CalendarLog[],

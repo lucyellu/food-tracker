@@ -2,6 +2,7 @@ import { parseWithDeepSeek } from "./deepseek";
 import { parseWithGemini, parseGeminiText } from "./gemini";
 import type { ParsedReceipt } from "./schema";
 import { extractTextWithGoogleVision } from "@/lib/ocr/google-vision";
+import { parsePriceSmartOrderText } from "@/lib/receipts/pricesmart";
 import { parseTntPackedOrderEmail } from "@/lib/receipts/tnt-email";
 import { parseUberEatsOrderText } from "@/lib/receipts/uber-eats";
 
@@ -18,6 +19,9 @@ const USE_DEEPSEEK = process.env.PREFER_DEEPSEEK === "true";
 async function parseTextReceipt(text: string): Promise<ParsedReceipt> {
   const tntReceipt = parseTntPackedOrderEmail(text);
   if (tntReceipt) return tntReceipt;
+
+  const priceSmartReceipt = parsePriceSmartOrderText(text);
+  if (priceSmartReceipt) return priceSmartReceipt;
 
   const uberEatsReceipt = parseUberEatsOrderText(text);
   if (uberEatsReceipt) return uberEatsReceipt;
