@@ -54,6 +54,7 @@ export function parseTntPackedOrderEmail(text: string): ParsedReceipt | null {
       quantity,
       unit,
       price: Number(priceMatch[1]),
+      active_ingredients: null,
     });
     i = amountLabelIndex + 1;
   }

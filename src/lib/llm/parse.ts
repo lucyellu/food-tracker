@@ -2,6 +2,7 @@ import { parseWithDeepSeek } from "./deepseek";
 import { parseWithGemini, parseGeminiText } from "./gemini";
 import type { ParsedReceipt } from "./schema";
 import { parseTntPackedOrderEmail } from "@/lib/receipts/tnt-email";
+import { parseUberEatsOrderText } from "@/lib/receipts/uber-eats";
 
 export type ParseInput =
   | { kind: "text"; text: string }
@@ -17,6 +18,9 @@ export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
   if (input.kind === "text") {
     const tntReceipt = parseTntPackedOrderEmail(input.text);
     if (tntReceipt) return tntReceipt;
+
+    const uberEatsReceipt = parseUberEatsOrderText(input.text);
+    if (uberEatsReceipt) return uberEatsReceipt;
 
     if (USE_DEEPSEEK) {
       return parseWithDeepSeek(input.text);

@@ -22,7 +22,7 @@ const emojiByKey: Record<string, string> = {
   potassium: "🍌",
   caffeine: "☕",
   alcohol: "🍷",
-  cannabis: "🌿",
+  cannabis: "🥬",
   medication: "💊",
 };
 

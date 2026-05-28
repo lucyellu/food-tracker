@@ -19,7 +19,8 @@ export function EnrichProductsButton({ receiptId }: { receiptId: number }) {
         setMessage(data.error ?? `Product lookup failed: ${res.status}`);
         return;
       }
-      setMessage(`Linked ${data.linked}, fallback links ${data.fallbackLinks}, failed ${data.failed}.`);
+      const skipped = data.skipped ? `, skipped ${data.skipped}` : "";
+      setMessage(`Linked ${data.linked}, fallback links ${data.fallbackLinks}, failed ${data.failed}${skipped}.`);
       router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
@@ -37,7 +38,7 @@ export function EnrichProductsButton({ receiptId }: { receiptId: number }) {
         className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-zinc-200 dark:border-zinc-800 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
       >
         <ImagePlus className={`size-4 ${loading ? "animate-pulse" : ""}`} />
-        {loading ? "Finding products" : "Find product images"}
+        {loading ? "Finding products" : "Find product info"}
       </button>
       {message && <p className="text-xs text-zinc-500 max-w-72 sm:text-right">{message}</p>}
     </div>

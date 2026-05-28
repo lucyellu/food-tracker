@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.is_receipt) {
       return NextResponse.json(
         {
-          error: "Input does not look like a grocery receipt",
+          error: "Input does not look like a receipt, itemized order, or supported product label",
           parsed,
         },
         { status: 422 },

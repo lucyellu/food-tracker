@@ -37,6 +37,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     alcoholG?: number | null;
     thcMg?: number | null;
     cbdMg?: number | null;
+    cbnMg?: number | null;
+    cbgMg?: number | null;
     amphetamineMg?: number | null;
   };
   const name = body.name?.trim();
@@ -52,6 +54,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     alcoholG: finiteOrNull(body.alcoholG),
     thcMg: finiteOrNull(body.thcMg),
     cbdMg: finiteOrNull(body.cbdMg),
+    cbnMg: finiteOrNull(body.cbnMg),
+    cbgMg: finiteOrNull(body.cbgMg),
     amphetamineMg: finiteOrNull(body.amphetamineMg),
   };
   const hasAnyAmount = Object.values(active).some((value) => value != null);

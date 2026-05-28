@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
+import { simpleParser } from "mailparser";
 import { parse as parseHtml } from "node-html-parser";
 import { db, schema } from "@/db/client";
-import { parseReceipt } from "@/lib/llm/parse";
+import { parseReceipt, type ParseInput } from "@/lib/llm/parse";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
 import {
   extractMerchantOrderKey,
@@ -13,6 +14,7 @@ import { getStoredGoogleConnection, refreshGoogleAccessToken } from "./oauth";
 
 const GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 const DEFAULT_QUERY = "newer_than:90d (receipt OR order OR invoice)";
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
 type GmailListResponse = {
   messages?: Array<{ id: string; threadId: string }>;
@@ -45,8 +47,23 @@ type GmailMessage = {
   payload?: GmailMessagePart;
 };
 
+type GmailAttachmentResponse = {
+  data?: string;
+  size?: number;
+};
+
+type ReceiptCandidate = {
+  id: string;
+  label: string;
+  input: ParseInput;
+  rawInputRef: string;
+  text?: string;
+};
+
 export type GmailSyncResult = {
   scanned: number;
+  candidates: number;
+  attachments: number;
   parsed: number;
   skipped: number;
   failed: number;
@@ -77,8 +94,8 @@ async function gmailFetch<T>(path: string, accessToken: string, params?: Record<
   return data as T;
 }
 
-function decodeBase64Url(data: string) {
-  return Buffer.from(data, "base64url").toString("utf8");
+function decodeBase64UrlBuffer(data: string) {
+  return Buffer.from(data, "base64url");
 }
 
 function collectParts(part: GmailMessagePart | undefined, output: GmailMessagePart[] = []) {
@@ -90,8 +107,12 @@ function collectParts(part: GmailMessagePart | undefined, output: GmailMessagePa
 
 function textFromPart(part: GmailMessagePart) {
   if (!part.body?.data) return null;
-  const decoded = decodeBase64Url(part.body.data);
-  if (part.mimeType === "text/html") {
+  return textFromBuffer(decodeBase64UrlBuffer(part.body.data), part.mimeType);
+}
+
+function textFromBuffer(buffer: Buffer, mimeType: string | undefined) {
+  const decoded = buffer.toString("utf8");
+  if (mimeType === "text/html") {
     return parseHtml(decoded).structuredText;
   }
   return decoded;
@@ -122,6 +143,155 @@ function extractMessageText(message: GmailMessage) {
     "",
     body,
   ].join("\n");
+}
+
+function extensionFor(filename: string | undefined) {
+  return filename?.split(".").pop()?.toLowerCase() ?? "";
+}
+
+function isForwardedEmail(part: GmailMessagePart) {
+  const ext = extensionFor(part.filename);
+  return part.mimeType === "message/rfc822" || ext === "eml";
+}
+
+function isTextAttachment(part: GmailMessagePart) {
+  const ext = extensionFor(part.filename);
+  return (
+    part.mimeType === "text/plain" ||
+    part.mimeType === "text/html" ||
+    ext === "txt" ||
+    ext === "html" ||
+    ext === "htm"
+  );
+}
+
+function isPdfAttachment(part: GmailMessagePart) {
+  return part.mimeType === "application/pdf" || extensionFor(part.filename) === "pdf";
+}
+
+function isImageAttachment(part: GmailMessagePart) {
+  const ext = extensionFor(part.filename);
+  return (
+    Boolean(part.mimeType?.startsWith("image/")) ||
+    ["jpg", "jpeg", "png", "webp", "heic", "heif"].includes(ext)
+  );
+}
+
+async function fetchPartBuffer(messageId: string, part: GmailMessagePart, accessToken: string) {
+  if (part.body?.data) {
+    return decodeBase64UrlBuffer(part.body.data);
+  }
+  if (!part.body?.attachmentId) return null;
+
+  const attachment = await gmailFetch<GmailAttachmentResponse>(
+    `/messages/${messageId}/attachments/${part.body.attachmentId}`,
+    accessToken,
+  );
+  if (!attachment.data) return null;
+  const buffer = decodeBase64UrlBuffer(attachment.data);
+  if (buffer.byteLength > MAX_ATTACHMENT_BYTES) return null;
+  return buffer;
+}
+
+function textCandidate(id: string, label: string, text: string | null | undefined): ReceiptCandidate | null {
+  const trimmed = text?.trim();
+  if (!trimmed) return null;
+  return {
+    id,
+    label,
+    text: trimmed,
+    rawInputRef: trimmed,
+    input: { kind: "text", text: trimmed },
+  };
+}
+
+function fileCandidate(
+  id: string,
+  label: string,
+  buffer: Buffer,
+  mimeType: string,
+): ReceiptCandidate {
+  const bytes = new Uint8Array(buffer);
+  return {
+    id,
+    label,
+    rawInputRef: `${label} (${buffer.byteLength} bytes, ${mimeType})`,
+    input:
+      mimeType === "application/pdf"
+        ? { kind: "pdf", bytes }
+        : { kind: "image", bytes, mimeType },
+  };
+}
+
+async function candidatesFromForwardedEmail(
+  id: string,
+  label: string,
+  buffer: Buffer,
+): Promise<ReceiptCandidate[]> {
+  const parsed = await simpleParser(buffer);
+  const htmlText = typeof parsed.html === "string" ? parseHtml(parsed.html).structuredText : "";
+  const body = [
+    `From: ${parsed.from?.text ?? ""}`,
+    `Subject: ${parsed.subject ?? ""}`,
+    `Date: ${parsed.date?.toISOString() ?? ""}`,
+    "",
+    parsed.text,
+    htmlText,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const candidates = [textCandidate(`${id}:eml-body`, `${label} body`, body)].filter(
+    (candidate): candidate is ReceiptCandidate => Boolean(candidate),
+  );
+
+  for (const [index, attachment] of parsed.attachments.entries()) {
+    if (attachment.content.byteLength > MAX_ATTACHMENT_BYTES) continue;
+    const attachmentLabel = attachment.filename || `${label} attachment ${index + 1}`;
+    const attachmentId = `${id}:eml-attachment-${index + 1}`;
+    if (attachment.contentType === "text/plain" || attachment.contentType === "text/html") {
+      const text = textFromBuffer(attachment.content, attachment.contentType);
+      const candidate = textCandidate(attachmentId, attachmentLabel, text);
+      if (candidate) candidates.push(candidate);
+    } else if (attachment.contentType === "application/pdf") {
+      candidates.push(fileCandidate(attachmentId, attachmentLabel, attachment.content, "application/pdf"));
+    } else if (attachment.contentType.startsWith("image/")) {
+      candidates.push(fileCandidate(attachmentId, attachmentLabel, attachment.content, attachment.contentType));
+    }
+  }
+
+  return candidates;
+}
+
+async function extractReceiptCandidates(message: GmailMessage, accessToken: string) {
+  const candidates: ReceiptCandidate[] = [];
+  const body = textCandidate("body", "email body", extractMessageText(message));
+  if (body) candidates.push(body);
+
+  const parts = collectParts(message.payload);
+  for (const [index, part] of parts.entries()) {
+    if (!part.filename && !part.body?.attachmentId) continue;
+    if (!isForwardedEmail(part) && !isTextAttachment(part) && !isPdfAttachment(part) && !isImageAttachment(part)) {
+      continue;
+    }
+
+    const buffer = await fetchPartBuffer(message.id, part, accessToken);
+    if (!buffer) continue;
+
+    const id = `attachment-${part.body?.attachmentId ?? part.partId ?? index}`;
+    const label = part.filename || part.mimeType || `attachment ${index + 1}`;
+    if (isForwardedEmail(part)) {
+      candidates.push(...(await candidatesFromForwardedEmail(id, label, buffer)));
+    } else if (isTextAttachment(part)) {
+      const candidate = textCandidate(id, label, textFromBuffer(buffer, part.mimeType));
+      if (candidate) candidates.push(candidate);
+    } else if (isPdfAttachment(part)) {
+      candidates.push(fileCandidate(id, label, buffer, "application/pdf"));
+    } else if (isImageAttachment(part)) {
+      candidates.push(fileCandidate(id, label, buffer, part.mimeType || "image/jpeg"));
+    }
+  }
+
+  return candidates;
 }
 
 async function logEmailIngest(input: typeof schema.emailIngestLog.$inferInsert) {
@@ -156,6 +326,8 @@ export async function processGmailMerchantInbox({
 
   const result: GmailSyncResult = {
     scanned: 0,
+    candidates: 0,
+    attachments: 0,
     parsed: 0,
     skipped: 0,
     failed: 0,
@@ -169,89 +341,113 @@ export async function processGmailMerchantInbox({
   for (const item of list.messages ?? []) {
     result.scanned += 1;
 
-    const [existing] = await db
-      .select({ id: schema.receipts.id })
-      .from(schema.receipts)
-      .where(eq(schema.receipts.sourceMessageId, item.id))
-      .limit(1);
-    if (existing) {
-      result.skipped += 1;
-      continue;
-    }
-
     let message: GmailMessage | null = null;
     try {
       message = await gmailFetch<GmailMessage>(`/messages/${item.id}`, accessToken, {
         format: "full",
       });
-      const rawInputRef = extractMessageText(message);
-      if (!rawInputRef) {
+      const candidates = await extractReceiptCandidates(message, accessToken);
+      result.candidates += candidates.length;
+      result.attachments += candidates.filter((candidate) => candidate.id !== "body").length;
+      if (candidates.length === 0) {
         result.skipped += 1;
         await logEmailIngest({
           fromAddress: getHeader(message, "From"),
           subject: getHeader(message, "Subject"),
           messageId: item.id,
           status: "skipped_not_receipt",
-          errorText: "No readable email body found",
+          errorText: "No readable email body or supported receipt attachment found",
         });
         continue;
       }
 
-      const merchantOrderKey = extractMerchantOrderKey(rawInputRef, preset.id);
-      if (merchantOrderKey) {
-        const [existingOrder] = await db
+      let parsedAny = false;
+      for (const candidate of candidates) {
+        const candidateMessageId =
+          candidate.id === "body" ? item.id : `${item.id}:${candidate.id}`;
+        const [existing] = await db
           .select({ id: schema.receipts.id })
           .from(schema.receipts)
-          .where(eq(schema.receipts.sourceMessageId, merchantOrderKey))
+          .where(eq(schema.receipts.sourceMessageId, candidateMessageId))
           .limit(1);
-        if (existingOrder) {
+        if (existing) {
           result.duplicates += 1;
           result.skipped += 1;
           await logEmailIngest({
             fromAddress: getHeader(message, "From"),
             subject: getHeader(message, "Subject"),
-            messageId: item.id,
+            messageId: candidateMessageId,
             status: "skipped_not_receipt",
-            errorText: `Duplicate merchant order ${merchantOrderKey}`,
-            receiptId: existingOrder.id,
+            errorText: `Duplicate Gmail source ${candidateMessageId}`,
+            receiptId: existing.id,
           });
           continue;
         }
-      }
 
-      const parsed = await parseReceipt({ kind: "text", text: rawInputRef });
-      if (!parsed.is_receipt) {
-        result.skipped += 1;
+        const parsed = await parseReceipt(candidate.input);
+        if (!parsed.is_receipt) {
+          result.skipped += 1;
+          await logEmailIngest({
+            fromAddress: getHeader(message, "From"),
+            subject: getHeader(message, "Subject"),
+            messageId: candidateMessageId,
+            status: "skipped_not_receipt",
+            errorText: `${candidate.label} did not look like a receipt`,
+          });
+          continue;
+        }
+
+        const merchantOrderKey = candidate.text ? extractMerchantOrderKey(candidate.text, preset.id) : null;
+        const sourceMessageId = merchantOrderKey ?? candidateMessageId;
+        if (merchantOrderKey) {
+          const [existingOrder] = await db
+            .select({ id: schema.receipts.id })
+            .from(schema.receipts)
+            .where(eq(schema.receipts.sourceMessageId, merchantOrderKey))
+            .limit(1);
+          if (existingOrder) {
+            result.duplicates += 1;
+            result.skipped += 1;
+            await logEmailIngest({
+              fromAddress: getHeader(message, "From"),
+              subject: getHeader(message, "Subject"),
+              messageId: candidateMessageId,
+              status: "skipped_not_receipt",
+              errorText: `Duplicate merchant order ${merchantOrderKey}`,
+              receiptId: existingOrder.id,
+            });
+            continue;
+          }
+        }
+
+        const receipt = await persistParsedReceipt({
+          parsed,
+          source: "auto_email",
+          rawInputKind: candidate.input.kind === "text" ? "email" : "image",
+          rawInputRef: candidate.rawInputRef,
+          sourceMessageId,
+        });
+        result.parsed += 1;
+        parsedAny = true;
+        result.receipts.push({
+          id: receipt.id,
+          vendor: receipt.vendor,
+          purchasedAt: receipt.purchasedAt,
+          total: receipt.total,
+        });
         await logEmailIngest({
           fromAddress: getHeader(message, "From"),
           subject: getHeader(message, "Subject"),
-          messageId: item.id,
-          status: "skipped_not_receipt",
+          messageId: candidateMessageId,
+          status: "parsed",
+          receiptId: receipt.id,
         });
-        continue;
+        break;
       }
 
-      const receipt = await persistParsedReceipt({
-        parsed,
-        source: "auto_email",
-        rawInputKind: "email",
-        rawInputRef,
-        sourceMessageId: merchantOrderKey ?? item.id,
-      });
-      result.parsed += 1;
-      result.receipts.push({
-        id: receipt.id,
-        vendor: receipt.vendor,
-        purchasedAt: receipt.purchasedAt,
-        total: receipt.total,
-      });
-      await logEmailIngest({
-        fromAddress: getHeader(message, "From"),
-        subject: getHeader(message, "Subject"),
-        messageId: item.id,
-        status: "parsed",
-        receiptId: receipt.id,
-      });
+      if (!parsedAny && candidates.length > 0) {
+        // Candidate-level skipped/failed rows already record the reason.
+      }
     } catch (e) {
       result.failed += 1;
       await logEmailIngest({

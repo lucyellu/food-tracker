@@ -10,7 +10,7 @@ if %errorlevel% == 0 (
     echo Server already running on port %PORT%
 ) else (
     echo Starting Next.js dev server on port %PORT%...
-    start /min "" cmd /c "cd /d %DIR% && npm run dev"
+    start /min "Food Tracker - next-server" cmd /c "cd /d %DIR% && npm run dev"
     timeout /t 6 /nobreak >nul
 )
 

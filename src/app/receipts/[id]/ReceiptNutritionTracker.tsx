@@ -42,8 +42,21 @@ type NutritionMeta = {
     alcoholG?: number | null;
     thcMg?: number | null;
     cbdMg?: number | null;
+    cbnMg?: number | null;
+    cbgMg?: number | null;
+    thcaMg?: number | null;
+    cbdaMg?: number | null;
+    totalThcMg?: number | null;
+    totalCbdMg?: number | null;
+    thcPercent?: number | null;
+    cbdPercent?: number | null;
+    cbnPercent?: number | null;
+    cbgPercent?: number | null;
+    totalThcPercent?: number | null;
+    totalCbdPercent?: number | null;
     amphetamineMg?: number | null;
   };
+  terpenes?: Array<{ name: string; mg?: number | null; percent?: number | null }>;
   serving?: { estimatedServings?: number | null };
   per100g?: {
     calories?: number | null;
@@ -129,6 +142,8 @@ type Totals = {
   caffeineMg: number;
   thcMg: number;
   cbdMg: number;
+  cbnMg: number;
+  cbgMg: number;
   amphetamineMg: number;
   potassiumMg: number;
   magnesiumMg: number;
@@ -193,7 +208,7 @@ const NUTRIENT_STICKERS = {
   potassium: { emoji: "🍌", code: "K" },
   caffeine: { emoji: "☕", code: "caf" },
   alcohol: { emoji: "🍷", code: "alc" },
-  cannabis: { emoji: "🌿", code: "THC" },
+  cannabis: { emoji: "🥬", code: "THC" },
   medication: { emoji: "💊", code: "Rx" },
 } as const;
 
@@ -255,6 +270,23 @@ function formatMg(mg: number | null | undefined) {
   if (mg == null || !Number.isFinite(mg)) return "-";
   if (mg >= 1000) return `${formatNumber(mg / 1000, 2)}g`;
   return `${formatNumber(mg)}mg`;
+}
+
+function formatActiveMg(mg: number | null | undefined) {
+  if (mg == null || !Number.isFinite(mg)) return "-";
+  return `${formatNumber(mg, mg < 10 ? 1 : 0)}mg`;
+}
+
+function formatActiveAmount(mg: number | null | undefined, percent: number | null | undefined) {
+  if (mg != null && Number.isFinite(mg)) return formatActiveMg(mg);
+  if (percent != null && Number.isFinite(percent)) return `${formatNumber(percent, 2)}%`;
+  return "-";
+}
+
+function formatTerpene(terpene: { name: string; mg?: number | null; percent?: number | null }) {
+  if (terpene.mg != null) return `${terpene.name} ${formatActiveMg(terpene.mg)}`;
+  if (terpene.percent != null) return `${terpene.name} ${formatNumber(terpene.percent, 2)}%`;
+  return terpene.name;
 }
 
 function formatMassG(grams: number | null | undefined) {
@@ -408,6 +440,7 @@ function rowValues(item: ReceiptTrackerItem) {
   const meta = parseMeta(item.nutrition?.activeIngredientsJson);
   const per100gOnly = meta?.basis === "per_100g_reference_only";
   const n = item.nutrition;
+  const active = meta?.active;
 
   return {
     meta,
@@ -420,9 +453,12 @@ function rowValues(item: ReceiptTrackerItem) {
     fiberG: per100gOnly ? meta?.per100g?.fiberG : n?.fiberG,
     alcoholG: per100gOnly ? meta?.per100g?.alcoholG : (n?.alcoholG ?? meta?.active?.alcoholG),
     caffeineMg: per100gOnly ? meta?.per100g?.caffeineMg : (n?.caffeineMg ?? meta?.active?.caffeineMg),
-    thcMg: meta?.active?.thcMg ?? null,
-    cbdMg: meta?.active?.cbdMg ?? null,
-    amphetamineMg: meta?.active?.amphetamineMg ?? null,
+    thcMg: active?.thcMg ?? active?.totalThcMg ?? null,
+    cbdMg: active?.cbdMg ?? active?.totalCbdMg ?? null,
+    cbnMg: active?.cbnMg ?? null,
+    cbgMg: active?.cbgMg ?? null,
+    amphetamineMg: active?.amphetamineMg ?? null,
+    terpenes: meta?.terpenes ?? [],
     sodiumMg: per100gOnly
       ? (meta?.per100gMinerals?.sodiumMg ?? meta?.per100g?.sodiumMg)
       : n?.sodiumMg,
@@ -453,6 +489,8 @@ function emptyTotals(): Totals {
     caffeineMg: 0,
     thcMg: 0,
     cbdMg: 0,
+    cbnMg: 0,
+    cbgMg: 0,
     amphetamineMg: 0,
     potassiumMg: 0,
     magnesiumMg: 0,
@@ -486,6 +524,8 @@ function computeTotals(items: ReceiptTrackerItem[]): Totals {
     acc.caffeineMg += values.caffeineMg ?? 0;
     acc.thcMg += values.thcMg ?? 0;
     acc.cbdMg += values.cbdMg ?? 0;
+    acc.cbnMg += values.cbnMg ?? 0;
+    acc.cbgMg += values.cbgMg ?? 0;
     acc.amphetamineMg += values.amphetamineMg ?? 0;
     acc.potassiumMg += values.potassiumMg ?? 0;
     acc.magnesiumMg += values.magnesiumMg ?? 0;
@@ -516,6 +556,8 @@ function computeSelectedTotals(items: ReceiptTrackerItem[]): Totals {
     acc.caffeineMg += values.caffeineMg ?? 0;
     acc.thcMg += values.thcMg ?? 0;
     acc.cbdMg += values.cbdMg ?? 0;
+    acc.cbnMg += values.cbnMg ?? 0;
+    acc.cbgMg += values.cbgMg ?? 0;
     acc.amphetamineMg += values.amphetamineMg ?? 0;
     acc.potassiumMg += values.potassiumMg ?? 0;
     acc.magnesiumMg += values.magnesiumMg ?? 0;
@@ -581,6 +623,8 @@ function addScaledNutrients(
   totals.caffeineMg += (values.caffeineMg ?? 0) * factor;
   totals.thcMg += (values.thcMg ?? 0) * factor;
   totals.cbdMg += (values.cbdMg ?? 0) * factor;
+  totals.cbnMg += (values.cbnMg ?? 0) * factor;
+  totals.cbgMg += (values.cbgMg ?? 0) * factor;
   totals.amphetamineMg += (values.amphetamineMg ?? 0) * factor;
   totals.potassiumMg += (values.potassiumMg ?? 0) * factor;
   totals.magnesiumMg += (values.magnesiumMg ?? 0) * factor;
@@ -631,6 +675,8 @@ function computeLogTotals(logs: ReceiptConsumptionLog[], itemsById: Map<number, 
     acc.caffeineMg += totals.caffeineMg;
     acc.thcMg += totals.thcMg;
     acc.cbdMg += totals.cbdMg;
+    acc.cbnMg += totals.cbnMg;
+    acc.cbgMg += totals.cbgMg;
     acc.amphetamineMg += totals.amphetamineMg;
     acc.potassiumMg += totals.potassiumMg;
     acc.magnesiumMg += totals.magnesiumMg;
@@ -659,6 +705,8 @@ function scaleTotals(totals: Totals, divisor: number | null): Totals {
     caffeineMg: totals.caffeineMg / divisor,
     thcMg: totals.thcMg / divisor,
     cbdMg: totals.cbdMg / divisor,
+    cbnMg: totals.cbnMg / divisor,
+    cbgMg: totals.cbgMg / divisor,
     amphetamineMg: totals.amphetamineMg / divisor,
     potassiumMg: totals.potassiumMg / divisor,
     magnesiumMg: totals.magnesiumMg / divisor,
@@ -800,6 +848,8 @@ export function ReceiptNutritionTracker({
   const [customAlcoholG, setCustomAlcoholG] = useState(0);
   const [customThcMg, setCustomThcMg] = useState(0);
   const [customCbdMg, setCustomCbdMg] = useState(0);
+  const [customCbnMg, setCustomCbnMg] = useState(0);
+  const [customCbgMg, setCustomCbgMg] = useState(0);
   const [customAmphetamineMg, setCustomAmphetamineMg] = useState(0);
   const [outlineWidth, setOutlineWidth] = useState(250);
   const [detailsWidth, setDetailsWidth] = useState(370);
@@ -955,6 +1005,8 @@ export function ReceiptNutritionTracker({
           alcoholG: customAlcoholG,
           thcMg: customThcMg,
           cbdMg: customCbdMg,
+          cbnMg: customCbnMg,
+          cbgMg: customCbgMg,
           amphetamineMg: customAmphetamineMg,
           note: logNote,
         }),
@@ -1233,8 +1285,19 @@ export function ReceiptNutritionTracker({
                     Caff {formatMg(values.caffeineMg)}
                     <div className="mt-0.5 text-zinc-500">Alc {formatNumber(values.alcoholG, 1)}g</div>
                     <div className="mt-0.5 text-zinc-500">
-                      THC {formatMg(values.thcMg)} · Rx {formatMg(values.amphetamineMg)}
+                      THC {formatActiveAmount(values.thcMg, values.meta?.active?.thcPercent ?? values.meta?.active?.totalThcPercent)} · CBD{" "}
+                      {formatActiveAmount(values.cbdMg, values.meta?.active?.cbdPercent ?? values.meta?.active?.totalCbdPercent)}
                     </div>
+                    <div className="mt-0.5 text-zinc-500">
+                      CBN {formatActiveAmount(values.cbnMg, values.meta?.active?.cbnPercent)} · CBG{" "}
+                      {formatActiveAmount(values.cbgMg, values.meta?.active?.cbgPercent)}
+                    </div>
+                    {values.terpenes.length > 0 ? (
+                      <div className="mt-0.5 max-w-32 truncate text-zinc-500">
+                        {values.terpenes.slice(0, 2).map(formatTerpene).join(" · ")}
+                      </div>
+                    ) : null}
+                    <div className="mt-0.5 text-zinc-500">Rx {formatMg(values.amphetamineMg)}</div>
                   </td>
                   <td className="px-2 py-1.5 align-top text-[11px]">
                     <span
@@ -1274,7 +1337,8 @@ export function ReceiptNutritionTracker({
                 {formatMg(tableTotals.potassiumMg)}
               </td>
               <td className="px-2 py-2">
-                Caff {formatMg(tableTotals.caffeineMg)} · Alc {formatNumber(tableTotals.alcoholG, 1)}g
+                Caff {formatMg(tableTotals.caffeineMg)} · Alc {formatNumber(tableTotals.alcoholG, 1)}g · THC{" "}
+                {formatActiveMg(tableTotals.thcMg)} · CBD {formatActiveMg(tableTotals.cbdMg)}
               </td>
               <td></td>
             </tr>
@@ -1876,6 +1940,28 @@ export function ReceiptNutritionTracker({
                   className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
                 />
               </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">CBN mg</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={customCbnMg}
+                  onChange={(e) => setCustomCbnMg(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
+              <label className="text-xs">
+                <span className="mb-1 block text-zinc-500">CBG mg</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={customCbgMg}
+                  onChange={(e) => setCustomCbgMg(Math.max(Number(e.target.value) || 0, 0))}
+                  className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                />
+              </label>
               <label className="col-span-2 text-xs">
                 <span className="mb-1 block text-zinc-500">Amphetamine mg</span>
                 <input
@@ -1978,6 +2064,28 @@ export function ReceiptNutritionTracker({
               label="THC"
               value={selectedScaledTotals.thcMg}
               unit="mg"
+              digits={1}
+              sticker={NUTRIENT_STICKERS.cannabis}
+            />
+            <NutrientCard
+              label="CBD"
+              value={selectedScaledTotals.cbdMg}
+              unit="mg"
+              digits={1}
+              sticker={NUTRIENT_STICKERS.cannabis}
+            />
+            <NutrientCard
+              label="CBN"
+              value={selectedScaledTotals.cbnMg}
+              unit="mg"
+              digits={1}
+              sticker={NUTRIENT_STICKERS.cannabis}
+            />
+            <NutrientCard
+              label="CBG"
+              value={selectedScaledTotals.cbgMg}
+              unit="mg"
+              digits={1}
               sticker={NUTRIENT_STICKERS.cannabis}
             />
             <NutrientCard

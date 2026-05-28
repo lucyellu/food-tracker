@@ -23,6 +23,10 @@ type NutritionMeta = {
     alcoholG?: number | null;
     thcMg?: number | null;
     cbdMg?: number | null;
+    cbnMg?: number | null;
+    cbgMg?: number | null;
+    totalThcMg?: number | null;
+    totalCbdMg?: number | null;
     amphetamineMg?: number | null;
   };
   per100g?: {
@@ -57,6 +61,8 @@ type ReadTotals = {
   caffeineMg: number;
   thcMg: number;
   cbdMg: number;
+  cbnMg: number;
+  cbgMg: number;
   amphetamineMg: number;
   potassiumMg: number;
   magnesiumMg: number;
@@ -139,6 +145,8 @@ const EMPTY_TOTALS: ReadTotals = {
   caffeineMg: 0,
   thcMg: 0,
   cbdMg: 0,
+  cbnMg: 0,
+  cbgMg: 0,
   amphetamineMg: 0,
   potassiumMg: 0,
   magnesiumMg: 0,
@@ -241,8 +249,10 @@ function rowValues(item: ReceiptTrackerItem) {
     sugarG: per100gOnly ? meta.per100g?.sugarG : n?.sugarG,
     alcoholG: per100gOnly ? meta.per100g?.alcoholG : (n?.alcoholG ?? meta.active?.alcoholG),
     caffeineMg: per100gOnly ? meta.per100g?.caffeineMg : (n?.caffeineMg ?? meta.active?.caffeineMg),
-    thcMg: meta.active?.thcMg,
-    cbdMg: meta.active?.cbdMg,
+    thcMg: meta.active?.thcMg ?? meta.active?.totalThcMg,
+    cbdMg: meta.active?.cbdMg ?? meta.active?.totalCbdMg,
+    cbnMg: meta.active?.cbnMg,
+    cbgMg: meta.active?.cbgMg,
     amphetamineMg: meta.active?.amphetamineMg,
     sodiumMg: per100gOnly ? (meta.per100gMinerals?.sodiumMg ?? meta.per100g?.sodiumMg) : n?.sodiumMg,
     potassiumMg: per100gOnly ? meta.per100gMinerals?.potassiumMg : mineralValue(item, "potassium"),
@@ -279,6 +289,8 @@ function computeTotals(items: ReceiptTrackerItem[]) {
     acc.caffeineMg += values.caffeineMg ?? 0;
     acc.thcMg += values.thcMg ?? 0;
     acc.cbdMg += values.cbdMg ?? 0;
+    acc.cbnMg += values.cbnMg ?? 0;
+    acc.cbgMg += values.cbgMg ?? 0;
     acc.amphetamineMg += values.amphetamineMg ?? 0;
     acc.potassiumMg += values.potassiumMg ?? 0;
     acc.magnesiumMg += values.magnesiumMg ?? 0;
@@ -326,6 +338,8 @@ function targetsForProfile(profile: PersonProfile): DailyTargets {
     caffeineMg: 400,
     thcMg: 0,
     cbdMg: 0,
+    cbnMg: 0,
+    cbgMg: 0,
     amphetamineMg: 0,
     potassiumMg: female ? 2600 : 3400,
     magnesiumMg: female ? 320 : 420,
@@ -364,6 +378,8 @@ function averageTargets(profiles: PersonProfile[]) {
       caffeineMg: 0,
       thcMg: 0,
       cbdMg: 0,
+      cbnMg: 0,
+      cbgMg: 0,
       amphetamineMg: 0,
       potassiumMg: 0,
       magnesiumMg: 0,
@@ -689,12 +705,14 @@ export function NutritionReadView({
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
           {[
             ["Caffeine", `${fmt(daily.caffeineMg)} mg`],
             ["Alcohol", `${fmt(daily.alcoholG, 1)} g`],
             ["THC", `${fmt(daily.thcMg, 1)} mg`],
             ["CBD", `${fmt(daily.cbdMg, 1)} mg`],
+            ["CBN", `${fmt(daily.cbnMg, 1)} mg`],
+            ["CBG", `${fmt(daily.cbgMg, 1)} mg`],
             ["Amphetamine", `${fmt(daily.amphetamineMg, 1)} mg`],
           ].map(([label, value]) => (
             <div key={label} className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">

@@ -90,6 +90,7 @@ const SHELF_META: Record<
 };
 
 const CATEGORY_EMOJI: Array<[RegExp, string]> = [
+  [/dutch\s*love|cannabis|thc|cbd|cbn|cbg|pre[-\s]?roll|preroll|flower|indica|sativa|hybrid|edible|gumm(?:y|ies)|vape|cart/i, "🥬"],
   [/apple|pear|peach|plum|orange|banana|melon|watermelon|fruit/i, "🍎"],
   [/egg/i, "🥚"],
   [/pork|beef|chicken|duck|rib|kidney|meat|tripe|bung|shank/i, "🥩"],
