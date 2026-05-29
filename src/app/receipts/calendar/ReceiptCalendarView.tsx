@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Search, ShoppingBag, Utensils } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Coffee, Search, ShoppingBag, Utensils, Wine } from "lucide-react";
 import { useMemo, useState } from "react";
 import { receiptDedupeSignature } from "@/lib/receipts/signature";
 
 type DateMode = "bought" | "estimated";
+type EstimateCategory = "food" | "controlled" | "alcohol" | "caffeine";
+type CategoryFilters = Record<EstimateCategory, boolean>;
 
 export type CalendarReceipt = {
   id: number;
@@ -120,8 +122,22 @@ type ItemRow = {
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const GRAMS_PER_OUNCE = 28.349523125;
+const CATEGORY_FILTERS: Array<{ id: EstimateCategory; label: string }> = [
+  { id: "food", label: "Food" },
+  { id: "controlled", label: "Controlled" },
+  { id: "alcohol", label: "Alcohol" },
+  { id: "caffeine", label: "Caffeine" },
+];
+const DEFAULT_CATEGORY_FILTERS: CategoryFilters = {
+  food: true,
+  controlled: true,
+  alcohol: true,
+  caffeine: true,
+};
 const ACTIVE_ITEM_SIGNAL_RE =
   /\b(dutch\s*love|thc|cbd|cbn|cbg|pre[-\s]?roll|preroll|flower|indica|sativa|hybrid|rosin|hash|vape|cart|edible|gumm(?:y|ies)|joint)\b/i;
+const ALCOHOL_ITEM_SIGNAL_RE = /\b(beer|wine|cider|vodka|gin|rum|whisk(?:y|ey)|tequila|liqueur|cocktail|cooler|seltzer)\b/i;
+const CAFFEINE_ITEM_SIGNAL_RE = /\b(coffee|espresso|latte|tea|matcha|yerba|energy\s*drink|caffeine)\b/i;
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -527,6 +543,7 @@ function dailyBrief(totals: EstimateTotals) {
     totals.calories > 0 ? `${formatMetric(totals.calories)} cal` : null,
     totals.activeGrams > 0 ? `Active ${formatActiveGrams(totals.activeGrams)}` : null,
     totals.alcoholG > 0 ? `Alc ${formatAlcoholOz(totals.alcoholG)}` : null,
+    totals.caffeineMg > 0 ? `Caff ${formatMg(totals.caffeineMg)}` : null,
   ].filter(Boolean);
   return metrics.slice(0, 3).join(" · ");
 }
@@ -540,6 +557,49 @@ function activeLine(totals: EstimateTotals) {
     totals.terpeneMg > 0 ? `Terp ${formatMg(totals.terpeneMg)}` : null,
   ].filter(Boolean);
   return metrics.slice(0, 3).join(" · ");
+}
+
+function macroLine(totals: EstimateTotals) {
+  return [
+    totals.proteinG > 0 ? `P ${formatMetric(totals.proteinG)}g` : null,
+    totals.carbsG > 0 ? `C ${formatMetric(totals.carbsG)}g` : null,
+    totals.fatG > 0 ? `F ${formatMetric(totals.fatG)}g` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function categoryIcon(category: EstimateCategory) {
+  if (category === "controlled") return <span aria-hidden="true">🥬</span>;
+  if (category === "alcohol") return <Wine className="size-4" />;
+  if (category === "caffeine") return <Coffee className="size-4" />;
+  return <Utensils className="size-4" />;
+}
+
+function estimateCategory(interval: EstimateInterval): EstimateCategory {
+  const itemText = interval.items.map((item) => item.rawName).join(" ");
+  const haystack = `${interval.vendorLabel} ${interval.receipt.vendor ?? ""} ${itemText}`;
+  if (
+    interval.vendorKey === "dutch-love" ||
+    interval.daily.activeGrams > 0 ||
+    interval.daily.thcMg > 0 ||
+    interval.daily.cbdMg > 0 ||
+    interval.daily.cbnMg > 0 ||
+    interval.daily.cbgMg > 0 ||
+    ACTIVE_ITEM_SIGNAL_RE.test(haystack)
+  ) {
+    return "controlled";
+  }
+  if (interval.daily.alcoholG > 0 || ALCOHOL_ITEM_SIGNAL_RE.test(haystack)) return "alcohol";
+  if (interval.daily.caffeineMg > 0 || CAFFEINE_ITEM_SIGNAL_RE.test(haystack)) return "caffeine";
+  return "food";
+}
+
+function summaryCardClasses(count: number) {
+  if (count <= 1) return "grid gap-3";
+  if (count === 2) return "grid gap-3 sm:grid-cols-2";
+  if (count === 3) return "grid gap-3 sm:grid-cols-3";
+  return "grid gap-3 sm:grid-cols-2 lg:grid-cols-4";
 }
 
 export function ReceiptCalendarView({
@@ -557,6 +617,8 @@ export function ReceiptCalendarView({
     .at(-1);
   const [cursor, setCursor] = useState(monthStartIso(latestBoughtDate ?? todayIso()));
   const [search, setSearch] = useState("");
+  const [categoryFilters, setCategoryFilters] = useState<CategoryFilters>(DEFAULT_CATEGORY_FILTERS);
+  const [hiddenVendorKeys, setHiddenVendorKeys] = useState<Set<string>>(new Set());
   const query = search.trim().toLowerCase();
 
   const itemsByReceiptId = useMemo(() => {
@@ -620,9 +682,28 @@ export function ReceiptCalendarView({
     [itemsByReceiptId, primaryBoughtReceiptIds, receipts],
   );
 
+  const estimateVendorOptions = useMemo(() => {
+    const vendors = new Map<string, { key: string; label: string; count: number }>();
+    for (const interval of estimateIntervals) {
+      const existing = vendors.get(interval.vendorKey);
+      if (existing) existing.count += 1;
+      else vendors.set(interval.vendorKey, { key: interval.vendorKey, label: interval.vendorLabel, count: 1 });
+    }
+    return Array.from(vendors.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [estimateIntervals]);
+
+  const filteredEstimateIntervals = useMemo(
+    () =>
+      estimateIntervals.filter((interval) => {
+        if (hiddenVendorKeys.has(interval.vendorKey)) return false;
+        return categoryFilters[estimateCategory(interval)];
+      }),
+    [categoryFilters, estimateIntervals, hiddenVendorKeys],
+  );
+
   const estimateEvents = useMemo<CalendarEvent[]>(() => {
     const events: CalendarEvent[] = [];
-    for (const interval of estimateIntervals) {
+    for (const interval of filteredEstimateIntervals) {
       for (let index = 0; index < interval.days; index += 1) {
         const date = addDays(interval.startDate, index);
         events.push({
@@ -635,7 +716,7 @@ export function ReceiptCalendarView({
       }
     }
     return events;
-  }, [estimateIntervals]);
+  }, [filteredEstimateIntervals]);
 
   const activeEvents = useMemo(() => {
     const events = mode === "bought" ? receiptEvents : estimateEvents;
@@ -669,10 +750,10 @@ export function ReceiptCalendarView({
 
   const intervalRows = useMemo(
     () =>
-      estimateIntervals
+      filteredEstimateIntervals
         .filter((interval) => intervalMatchesSearch(interval, query))
         .sort((a, b) => b.startDate.localeCompare(a.startDate) || a.vendorLabel.localeCompare(b.vendorLabel)),
-    [estimateIntervals, query],
+    [filteredEstimateIntervals, query],
   );
 
   const days = calendarDays(cursor);
@@ -685,9 +766,108 @@ export function ReceiptCalendarView({
   const estimateMonthTotals = mode === "estimated" ? eventsTotals(monthEvents) : emptyTotals();
   const estimateDays = mode === "estimated" ? new Set(monthEvents.map((event) => event.date)).size : 0;
   const estimateDailyAverage = scaledTotals(estimateMonthTotals, estimateDays || 1);
+  const currentProjectedInterval = intervalRows
+    .filter((interval) => interval.projected)
+    .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+  const projectedDaysRemaining = currentProjectedInterval
+    ? Math.max(daysBetween(todayIso(), currentProjectedInterval.endDate) + 1, 0)
+    : 0;
   const undatedReceipts = boughtDedupe.undated.filter((receipt) =>
     eventMatchesSearch({ id: `undated-${receipt.id}`, kind: "receipt", receipt, duplicateCount: 0, date: "" }, query),
   );
+  const estimateSummaryCards = [
+    {
+      key: "month",
+      label: "Month",
+      value: monthTitle(cursor),
+      sub: null,
+    },
+    mode === "bought" && monthEvents.length > 0
+      ? {
+          key: "receipts",
+          label: "Receipts",
+          value: String(monthEvents.length),
+          sub: null,
+        }
+      : null,
+    mode === "bought" && receiptSpend > 0
+      ? {
+          key: "spend",
+          label: "Spend",
+          value: formatMoney(receiptSpend),
+          sub: null,
+        }
+      : null,
+    mode === "estimated" && estimateDays > 0
+      ? {
+          key: "days",
+          label: "Estimate days",
+          value: String(estimateDays),
+          sub: `${filteredEstimateIntervals.length} intervals`,
+        }
+      : null,
+    mode === "estimated" && estimateDailyAverage.price > 0
+      ? {
+          key: "daily-spend",
+          label: "Daily spend",
+          value: `${formatMoney(estimateDailyAverage.price)}/day`,
+          sub: null,
+        }
+      : null,
+    mode === "estimated" && estimateDailyAverage.calories > 0
+      ? {
+          key: "daily-calories",
+          label: "Calories/day",
+          value: `${formatMetric(estimateDailyAverage.calories)} cal`,
+          sub: macroLine(estimateDailyAverage) || null,
+        }
+      : null,
+    mode === "estimated" && estimateDailyAverage.activeGrams > 0
+      ? {
+          key: "daily-active",
+          label: "Controlled/day",
+          value: formatActiveGrams(estimateDailyAverage.activeGrams),
+          sub: activeLine(estimateDailyAverage) || null,
+        }
+      : null,
+    mode === "estimated" && estimateDailyAverage.alcoholG > 0
+      ? {
+          key: "daily-alcohol",
+          label: "Alcohol/day",
+          value: formatAlcoholOz(estimateDailyAverage.alcoholG),
+          sub: null,
+        }
+      : null,
+    mode === "estimated" && estimateDailyAverage.caffeineMg > 0
+      ? {
+          key: "daily-caffeine",
+          label: "Caffeine/day",
+          value: formatMg(estimateDailyAverage.caffeineMg),
+          sub: null,
+        }
+      : null,
+    mode === "estimated" && currentProjectedInterval
+      ? {
+          key: "expected",
+          label: "Expected use",
+          value: projectedDaysRemaining > 0 ? `${projectedDaysRemaining} days left` : "Due now",
+          sub: `${currentProjectedInterval.vendorLabel} through ${formatShortDate(currentProjectedInterval.endDate)}`,
+        }
+      : null,
+  ].filter((card): card is { key: string; label: string; value: string; sub: string | null } => Boolean(card));
+
+  function toggleCategory(category: EstimateCategory) {
+    setCategoryFilters((current) => ({ ...current, [category]: !current[category] }));
+  }
+
+  function toggleVendor(vendorKey: string) {
+    setHiddenVendorKeys((current) => {
+      const next = new Set(current);
+      if (next.has(vendorKey)) next.delete(vendorKey);
+      else next.add(vendorKey);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-5">
@@ -729,34 +909,60 @@ export function ReceiptCalendarView({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs font-medium uppercase text-zinc-500">Month</div>
-          <div className="mt-2 text-xl font-semibold">{monthTitle(cursor)}</div>
-        </div>
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Receipts" : "Estimate days"}</div>
-          <div className="mt-2 text-xl font-semibold">{mode === "bought" ? monthEvents.length : estimateDays}</div>
-        </div>
-        <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Spend" : "Daily avg"}</div>
-          <div className="mt-2 text-xl font-semibold">
-            {mode === "bought"
-              ? formatMoney(receiptSpend) || "$0.00"
-              : estimateDailyAverage.price > 0
-                ? `${formatMoney(estimateDailyAverage.price)}/day`
-                : `${formatMetric(estimateDailyAverage.calories)} cal/day`}
+      <div className={summaryCardClasses(estimateSummaryCards.length)}>
+        {estimateSummaryCards.map((card) => (
+          <div key={card.key} className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="text-xs font-medium uppercase text-zinc-500">{card.label}</div>
+            <div className="mt-2 text-xl font-semibold">{card.value}</div>
+            {card.sub ? <div className="mt-1 text-xs text-zinc-500">{card.sub}</div> : null}
           </div>
-          {mode === "estimated" ? (
-            <div className="mt-1 text-xs text-zinc-500">
-              {formatMetric(estimateDailyAverage.calories)} cal · P {formatMetric(estimateDailyAverage.proteinG)}g · C{" "}
-              {formatMetric(estimateDailyAverage.carbsG)}g · F {formatMetric(estimateDailyAverage.fatG)}g
-              {estimateDailyAverage.activeGrams > 0 ? ` · Active ${formatActiveGrams(estimateDailyAverage.activeGrams)}` : ""}
-              {estimateDailyAverage.alcoholG > 0 ? ` · Alc ${formatAlcoholOz(estimateDailyAverage.alcoholG)}` : ""}
+        ))}
+      </div>
+
+      {mode === "estimated" ? (
+        <div className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase text-zinc-500">Include</span>
+            {CATEGORY_FILTERS.map((category) => (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => toggleCategory(category.id)}
+                className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-medium ${
+                  categoryFilters[category.id]
+                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                    : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {categoryIcon(category.id)}
+                {category.label}
+              </button>
+            ))}
+          </div>
+          {estimateVendorOptions.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium uppercase text-zinc-500">Vendors</span>
+              {estimateVendorOptions.map((vendor) => {
+                const enabled = !hiddenVendorKeys.has(vendor.key);
+                return (
+                  <button
+                    key={vendor.key}
+                    type="button"
+                    onClick={() => toggleVendor(vendor.key)}
+                    className={`h-9 rounded-md border px-3 text-sm font-medium ${
+                      enabled
+                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                        : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {vendor.label} <span className="text-xs opacity-70">{vendor.count}</span>
+                  </button>
+                );
+              })}
             </div>
           ) : null}
         </div>
-      </div>
+      ) : null}
 
       <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800">
@@ -840,6 +1046,7 @@ export function ReceiptCalendarView({
                         ) : null}
                         {dayEstimateTotals.activeGrams > 0 ? <div>Active {formatActiveGrams(dayEstimateTotals.activeGrams)}</div> : null}
                         {dayEstimateTotals.alcoholG > 0 ? <div>Alc {formatAlcoholOz(dayEstimateTotals.alcoholG)}</div> : null}
+                        {dayEstimateTotals.caffeineMg > 0 ? <div>Caff {formatMg(dayEstimateTotals.caffeineMg)}</div> : null}
                         {dayActiveLine ? <div>{dayActiveLine}</div> : null}
                       </div>
                     ) : null}
@@ -965,6 +1172,7 @@ export function ReceiptCalendarView({
               <tbody>
                 {intervalRows.map((interval) => {
                   const intervalActiveLine = activeLine(interval.daily);
+                  const daysLeft = Math.max(daysBetween(todayIso(), interval.endDate) + 1, 0);
                   return (
                     <tr key={interval.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
                       <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">
@@ -972,7 +1180,11 @@ export function ReceiptCalendarView({
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium">{interval.vendorLabel}</div>
-                        {interval.projected ? <div className="mt-1 text-xs text-zinc-500">Projected</div> : null}
+                        {interval.projected ? (
+                          <div className="mt-1 text-xs text-zinc-500">
+                            {daysLeft > 0 ? `Expected ${daysLeft} days left` : "Expected to be due now"}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                         <Link href={`/receipts/${interval.receipt.id}`} className="hover:underline">

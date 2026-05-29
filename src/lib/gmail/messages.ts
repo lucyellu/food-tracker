@@ -79,6 +79,8 @@ export type GmailSyncResult = {
   failed: number;
   duplicates: number;
   rateLimited: boolean;
+  nextPageToken: string | null;
+  resultSizeEstimate: number | null;
   query: string;
   merchant: string;
   days: number;
@@ -375,17 +377,19 @@ export async function processGmailMerchantInbox({
   maxResults = 10,
   merchant = "all",
   days = 90,
+  pageToken,
 }: {
   maxResults?: number;
   merchant?: GmailMerchantPresetId;
   days?: number;
+  pageToken?: string | null;
 } = {}): Promise<GmailSyncResult> {
   const connection = await getStoredGoogleConnection();
   if (!connection) {
     throw new Error("Gmail is not connected yet");
   }
 
-  return processGmailAccount(connection, { maxResults, merchant, days });
+  return processGmailAccount(connection, { maxResults, merchant, days, pageToken });
 }
 
 function scopedGmailSourceId(connection: GmailAccountConnection, id: string) {
@@ -419,19 +423,23 @@ export async function processGmailAccount(
     maxResults = 10,
     merchant = "all",
     days = 90,
+    pageToken,
   }: {
     maxResults?: number;
     merchant?: GmailMerchantPresetId;
     days?: number;
+    pageToken?: string | null;
   } = {},
 ): Promise<GmailSyncResult> {
   const accessToken = await refreshGoogleAccessToken(connection.refreshToken);
   const preset = getGmailMerchantPreset(merchant);
   const query = gmailQueryForPreset(preset.id, days);
-  const list = await gmailFetch<GmailListResponse>("/messages", accessToken, {
+  const listParams: Record<string, string> = {
     q: query || connection.query || DEFAULT_QUERY,
     maxResults: String(maxResults),
-  });
+  };
+  if (pageToken) listParams.pageToken = pageToken;
+  const list = await gmailFetch<GmailListResponse>("/messages", accessToken, listParams);
 
   const result: GmailSyncResult = {
     accountId: connection.accountId,
@@ -448,6 +456,8 @@ export async function processGmailAccount(
     failed: 0,
     duplicates: 0,
     rateLimited: false,
+    nextPageToken: list.nextPageToken ?? null,
+    resultSizeEstimate: list.resultSizeEstimate ?? null,
     query: query || connection.query || DEFAULT_QUERY,
     merchant: preset.id,
     days,
@@ -607,7 +617,10 @@ export async function processGmailAccount(
         status: "failed",
         errorText: conciseParseError(e),
       });
-      if (isRateLimitError(e)) break;
+      if (isRateLimitError(e)) {
+        result.nextPageToken = pageToken ?? null;
+        break;
+      }
     }
   }
 

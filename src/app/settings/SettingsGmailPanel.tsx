@@ -38,12 +38,28 @@ type SyncResponse = {
   skippedPreviouslySeen?: number;
   failed?: number;
   rateLimited?: boolean;
-  accounts?: Array<{ accountEmail: string | null; provider: string; error?: string; rateLimited?: boolean }>;
+  hasMore?: boolean;
+  pageTokens?: Record<string, string>;
+  resultSizeEstimate?: number | null;
+  accounts?: Array<{
+    accountId?: number | null;
+    accountEmail: string | null;
+    provider: string;
+    error?: string;
+    rateLimited?: boolean;
+    nextPageToken?: string | null;
+    resultSizeEstimate?: number | null;
+  }>;
   error?: string;
   needsReconnect?: boolean;
 };
 
 type GmailMerchant = "all" | "tnt" | "pricesmart" | "ubereats";
+type ScanCursor = {
+  key: string;
+  accountId?: number;
+  pageTokens: Record<string, string>;
+};
 
 const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
   { id: "all", label: "All" },
@@ -52,7 +68,19 @@ const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
   { id: "ubereats", label: "Uber Eats" },
 ];
 
-const GMAIL_DAY_WINDOWS = [14, 30, 90, 365] as const;
+const GMAIL_DAY_WINDOWS = [14, 30, 90, 365, 730, 3650] as const;
+const GMAIL_BATCH_SIZE = 50;
+
+function scanKey(merchant: GmailMerchant, days: number, accountId?: number) {
+  return `${merchant}:${days}:${accountId ?? "all"}`;
+}
+
+function dayWindowLabel(days: number) {
+  if (days === 365) return "1 year";
+  if (days === 730) return "2 years";
+  if (days === 3650) return "10 years";
+  return `${days} days`;
+}
 
 function syncMessage(data: SyncResponse) {
   const accountErrors = data.accounts?.filter((account) => account.error) ?? [];
@@ -67,11 +95,12 @@ function syncMessage(data: SyncResponse) {
   ].filter(Boolean);
   const details = skipDetails.length > 0 ? ` (${skipDetails.join(", ")})` : "";
   const rateLimit = data.rateLimited ? " Stopped early because Gemini quota/rate limit was hit." : "";
+  const more = data.hasMore ? " Older matches are available." : "";
   return `Scanned ${data.scanned ?? 0}, checked ${data.candidates ?? 0} bodies/attachments (${
     data.attachments ?? 0
   } attachments), parsed ${data.parsed ?? 0}, duplicates ${data.duplicates ?? 0}, skipped ${
     data.skipped ?? 0
-  }${details}, failed ${data.failed ?? 0}.${rateLimit}${errorSuffix}`;
+  }${details}, failed ${data.failed ?? 0}.${rateLimit}${more}${errorSuffix}`;
 }
 
 export function SettingsGmailPanel() {
@@ -84,6 +113,7 @@ export function SettingsGmailPanel() {
   const [yahooPassword, setYahooPassword] = useState("");
   const [yahooMailbox, setYahooMailbox] = useState("INBOX");
   const [message, setMessage] = useState<string | null>(null);
+  const [scanCursor, setScanCursor] = useState<ScanCursor | null>(null);
 
   async function loadStatus() {
     const res = await fetch("/api/google/status");
@@ -156,15 +186,17 @@ export function SettingsGmailPanel() {
     }
   }
 
-  async function syncInbox(nextMerchant = merchant, accountId?: number) {
+  async function syncInbox(nextMerchant = merchant, accountId?: number, continueOlder = false) {
     setBusy(true);
     setSyncing(true);
     setMessage(null);
+    const key = scanKey(nextMerchant, days, accountId);
+    const pageTokens = continueOlder && scanCursor?.key === key ? scanCursor.pageTokens : undefined;
     try {
       const res = await fetch("/api/google/sync", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ maxResults: 25, merchant: nextMerchant, days, accountId }),
+        body: JSON.stringify({ maxResults: GMAIL_BATCH_SIZE, merchant: nextMerchant, days, accountId, pageTokens }),
       });
       const data = (await res.json()) as SyncResponse;
       if (!res.ok) {
@@ -175,7 +207,12 @@ export function SettingsGmailPanel() {
         );
         return;
       }
-      setMessage(syncMessage(data));
+      setMessage(`${continueOlder ? "Older batch: " : ""}${syncMessage(data)}`);
+      setScanCursor(
+        data.hasMore && data.pageTokens && Object.keys(data.pageTokens).length > 0
+          ? { key, accountId, pageTokens: data.pageTokens }
+          : null,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not process inbox.");
     } finally {
@@ -284,11 +321,14 @@ export function SettingsGmailPanel() {
       <div className="mt-4 grid gap-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium uppercase text-zinc-500">Merchant</span>
-          {GMAIL_MERCHANTS.map((option) => (
+              {GMAIL_MERCHANTS.map((option) => (
             <button
               key={option.id}
               type="button"
-              onClick={() => setMerchant(option.id)}
+              onClick={() => {
+                setMerchant(option.id);
+                setScanCursor(null);
+              }}
               disabled={busy}
               className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
                 merchant === option.id
@@ -306,7 +346,10 @@ export function SettingsGmailPanel() {
             <button
               key={optionDays}
               type="button"
-              onClick={() => setDays(optionDays)}
+              onClick={() => {
+                setDays(optionDays);
+                setScanCursor(null);
+              }}
               disabled={busy}
               className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
                 days === optionDays
@@ -314,7 +357,7 @@ export function SettingsGmailPanel() {
                   : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
               }`}
             >
-              {optionDays === 365 ? "1 year" : `${optionDays} days`}
+              {dayWindowLabel(optionDays)}
             </button>
           ))}
         </div>
@@ -328,6 +371,17 @@ export function SettingsGmailPanel() {
             <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
             Sync all inboxes
           </button>
+          {scanCursor ? (
+            <button
+              type="button"
+              onClick={() => void syncInbox(merchant, scanCursor.accountId, true)}
+              disabled={busy}
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+            >
+              <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
+              Scan next older batch
+            </button>
+          ) : null}
         </div>
       </div>
 

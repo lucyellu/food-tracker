@@ -13,16 +13,26 @@ export async function POST(req: NextRequest) {
       merchant?: GmailMerchantPresetId;
       days?: number;
       accountId?: number;
+      pageTokens?: Record<string, unknown>;
     };
-    const maxResults = Math.min(Math.max(body.maxResults ?? 10, 1), 25);
+    const maxResults = Math.min(Math.max(body.maxResults ?? 10, 1), 100);
     const merchant = getGmailMerchantPreset(body.merchant).id;
     const days = Math.min(Math.max(Number(body.days) || 90, 1), 3650);
     const accountId = Number(body.accountId);
+    const pageTokens =
+      body.pageTokens && typeof body.pageTokens === "object"
+        ? Object.fromEntries(
+            Object.entries(body.pageTokens)
+              .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+              .map(([key, value]) => [key, value]),
+          )
+        : undefined;
     const result = await processEmailInboxes({
       maxResults,
       merchant,
       days,
       accountId: Number.isFinite(accountId) ? accountId : null,
+      pageTokens,
     });
     return NextResponse.json(result);
   } catch (e) {

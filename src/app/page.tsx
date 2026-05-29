@@ -31,8 +31,16 @@ type GmailSyncResponse = {
   skippedPreviouslySeen?: number;
   failed?: number;
   rateLimited?: boolean;
+  hasMore?: boolean;
+  pageTokens?: Record<string, string>;
+  resultSizeEstimate?: number | null;
 };
 type GmailMerchant = "all" | "tnt" | "pricesmart" | "ubereats";
+type GmailScanCursor = {
+  key: string;
+  merchant: GmailMerchant;
+  pageTokens: Record<string, string>;
+};
 type PhotosStatus = {
   configured: boolean;
   connected: boolean;
@@ -66,7 +74,19 @@ const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
   { id: "ubereats", label: "Uber Eats" },
 ];
 
-const GMAIL_DAY_WINDOWS = [14, 30, 90, 365] as const;
+const GMAIL_DAY_WINDOWS = [14, 30, 90, 365, 730, 3650] as const;
+const GMAIL_BATCH_SIZE = 50;
+
+function gmailScanKey(merchant: GmailMerchant, days: number) {
+  return `${merchant}:${days}:all`;
+}
+
+function dayWindowLabel(days: number) {
+  if (days === 365) return "1 year";
+  if (days === 730) return "2 years";
+  if (days === 3650) return "10 years";
+  return `${days} days`;
+}
 
 function gmailSyncMessage(data: GmailSyncResponse) {
   const skipDetails = [
@@ -76,11 +96,12 @@ function gmailSyncMessage(data: GmailSyncResponse) {
   ].filter(Boolean);
   const details = skipDetails.length > 0 ? ` (${skipDetails.join(", ")})` : "";
   const rateLimit = data.rateLimited ? " Stopped early because Gemini quota/rate limit was hit." : "";
+  const more = data.hasMore ? " Older matches are available." : "";
   return `Scanned ${data.scanned ?? 0} emails, checked ${data.candidates ?? 0} bodies/attachments (${
     data.attachments ?? 0
   } attachments), parsed ${data.parsed ?? 0}, duplicates ${data.duplicates ?? 0}, skipped ${
     data.skipped ?? 0
-  }${details}, failed ${data.failed ?? 0}.${rateLimit}`;
+  }${details}, failed ${data.failed ?? 0}.${rateLimit}${more}`;
 }
 
 export default function Home() {
@@ -94,6 +115,7 @@ export default function Home() {
   const [gmailMerchant, setGmailMerchant] = useState<GmailMerchant>("all");
   const [gmailDays, setGmailDays] = useState<number>(90);
   const [gmailMessage, setGmailMessage] = useState<string | null>(null);
+  const [gmailScanCursor, setGmailScanCursor] = useState<GmailScanCursor | null>(null);
   const [photosStatus, setPhotosStatus] = useState<PhotosStatus | null>(null);
   const [photosBusy, setPhotosBusy] = useState(false);
   const [photosSessionId, setPhotosSessionId] = useState<string | null>(null);
@@ -144,14 +166,16 @@ export default function Home() {
     };
   }, []);
 
-  async function syncGmail(merchant = gmailMerchant) {
+  async function syncGmail(merchant = gmailMerchant, continueOlder = false) {
     setGmailLoading(true);
     setGmailMessage(null);
+    const key = gmailScanKey(merchant, gmailDays);
+    const pageTokens = continueOlder && gmailScanCursor?.key === key ? gmailScanCursor.pageTokens : undefined;
     try {
       const res = await fetch("/api/google/sync", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ maxResults: 25, merchant, days: gmailDays }),
+        body: JSON.stringify({ maxResults: GMAIL_BATCH_SIZE, merchant, days: gmailDays, pageTokens }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -163,7 +187,13 @@ export default function Home() {
         );
         return;
       }
-      setGmailMessage(gmailSyncMessage(data as GmailSyncResponse));
+      const syncData = data as GmailSyncResponse;
+      setGmailMessage(`${continueOlder ? "Older batch: " : ""}${gmailSyncMessage(syncData)}`);
+      setGmailScanCursor(
+        syncData.hasMore && syncData.pageTokens && Object.keys(syncData.pageTokens).length > 0
+          ? { key, merchant, pageTokens: syncData.pageTokens }
+          : null,
+      );
     } catch (e) {
       setGmailMessage(e instanceof Error ? e.message : String(e));
     } finally {
@@ -373,7 +403,10 @@ export default function Home() {
                 <button
                   key={merchant.id}
                   type="button"
-                  onClick={() => setGmailMerchant(merchant.id)}
+                  onClick={() => {
+                    setGmailMerchant(merchant.id);
+                    setGmailScanCursor(null);
+                  }}
                   disabled={gmailLoading}
                   className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
                     gmailMerchant === merchant.id
@@ -391,7 +424,10 @@ export default function Home() {
                 <button
                   key={days}
                   type="button"
-                  onClick={() => setGmailDays(days)}
+                  onClick={() => {
+                    setGmailDays(days);
+                    setGmailScanCursor(null);
+                  }}
                   disabled={gmailLoading}
                   className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
                     gmailDays === days
@@ -399,7 +435,7 @@ export default function Home() {
                       : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                   }`}
                 >
-                  {days === 365 ? "1 year" : `${days} days`}
+                  {dayWindowLabel(days)}
                 </button>
               ))}
             </div>
@@ -408,7 +444,10 @@ export default function Home() {
                 <button
                   key={merchant.id}
                   type="button"
-                  onClick={() => void syncGmail(merchant.id)}
+                  onClick={() => {
+                    setGmailMerchant(merchant.id);
+                    void syncGmail(merchant.id);
+                  }}
                   disabled={gmailLoading}
                   className="inline-flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                 >
@@ -416,6 +455,17 @@ export default function Home() {
                   Sync {merchant.label}
                 </button>
               ))}
+              {gmailScanCursor ? (
+                <button
+                  type="button"
+                  onClick={() => void syncGmail(gmailScanCursor.merchant, true)}
+                  disabled={gmailLoading}
+                  className="inline-flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                >
+                  <RefreshCw className={`size-4 ${gmailLoading ? "animate-spin" : ""}`} />
+                  Scan next older batch
+                </button>
+              ) : null}
             </div>
           </div>
         )}

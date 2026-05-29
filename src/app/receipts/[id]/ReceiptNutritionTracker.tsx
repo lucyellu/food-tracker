@@ -778,15 +778,8 @@ function SummaryCard({
   );
 }
 
-function NutrientCard({
-  label,
-  value,
-  unit,
-  dv,
-  digits = 0,
-  signalMode = "goal",
-  sticker,
-}: {
+type MetricCardConfig = {
+  key: string;
   label: string;
   value: number | null | undefined;
   unit: string;
@@ -794,14 +787,24 @@ function NutrientCard({
   digits?: number;
   signalMode?: TargetSignalMode;
   sticker?: NutrientSticker;
-}) {
-  const display = value == null ? "-" : `${formatNumber(value, digits)}${unit}`;
+  sub?: ReactNode;
+};
+
+function hasMetricValue(value: number | null | undefined) {
+  return value != null && Number.isFinite(value) && Math.abs(value) > 0.0001;
+}
+
+function MetricCard({ card }: { card: MetricCardConfig }) {
+  const display = card.value == null ? "-" : `${formatNumber(card.value, card.digits ?? 0)}${card.unit}`;
   return (
     <SummaryCard
-      label={label}
+      label={card.label}
       value={display}
-      sticker={sticker}
-      sub={dv ? <TargetSignal value={value} dailyValue={dv} mode={signalMode} /> : undefined}
+      sticker={card.sticker}
+      sub={
+        card.sub ??
+        (card.dv ? <TargetSignal value={card.value} dailyValue={card.dv} mode={card.signalMode ?? "goal"} /> : undefined)
+      }
     />
   );
 }
@@ -929,6 +932,251 @@ export function ReceiptNutritionTracker({
   );
   const vitaminEntries = useMemo(() => microEntries(selectedVitamins), [selectedVitamins]);
   const mineralEntries = useMemo(() => microEntries(selectedMinerals), [selectedMinerals]);
+  const dailyMetricCards = useMemo<MetricCardConfig[]>(
+    () =>
+      [
+        {
+          key: "calories",
+          label: "Daily calories / person",
+          value: dailyPersonTotals.calories,
+          unit: "",
+          dv: DAILY_VALUES.calories,
+          signalMode: "energy" as const,
+          sticker: NUTRIENT_STICKERS.calories,
+        },
+        {
+          key: "protein",
+          label: "Daily protein / person",
+          value: dailyPersonTotals.proteinG,
+          unit: "g",
+          dv: DAILY_VALUES.proteinG,
+          sticker: NUTRIENT_STICKERS.protein,
+        },
+        {
+          key: "carbs",
+          label: "Daily carbs / person",
+          value: dailyPersonTotals.carbsG,
+          unit: "g",
+          dv: DAILY_VALUES.carbsG,
+          sticker: NUTRIENT_STICKERS.carbs,
+        },
+        {
+          key: "fat",
+          label: "Daily fat / person",
+          value: dailyPersonTotals.fatG,
+          unit: "g",
+          dv: DAILY_VALUES.fatG,
+          signalMode: "limit" as const,
+          sticker: NUTRIENT_STICKERS.fat,
+        },
+        {
+          key: "sodium",
+          label: "Daily sodium / person",
+          value: dailyPersonTotals.sodiumMg,
+          unit: "mg",
+          dv: DAILY_VALUES.sodiumMg,
+          signalMode: "limit" as const,
+          sticker: NUTRIENT_STICKERS.sodium,
+        },
+        {
+          key: "potassium",
+          label: "Daily potassium / person",
+          value: dailyPersonTotals.potassiumMg,
+          unit: "mg",
+          dv: DAILY_VALUES.potassiumMg,
+          sticker: NUTRIENT_STICKERS.potassium,
+        },
+        {
+          key: "caffeine",
+          label: "Daily caffeine / person",
+          value: dailyPersonTotals.caffeineMg,
+          unit: "mg",
+          sticker: NUTRIENT_STICKERS.caffeine,
+        },
+        {
+          key: "alcohol",
+          label: "Daily alcohol / person",
+          value: dailyPersonTotals.alcoholG,
+          unit: "g",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.alcohol,
+        },
+        {
+          key: "thc",
+          label: "Daily THC / person",
+          value: dailyPersonTotals.thcMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "cbd",
+          label: "Daily CBD / person",
+          value: dailyPersonTotals.cbdMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "cbn",
+          label: "Daily CBN / person",
+          value: dailyPersonTotals.cbnMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "cbg",
+          label: "Daily CBG / person",
+          value: dailyPersonTotals.cbgMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "amphetamine",
+          label: "Daily medication / person",
+          value: dailyPersonTotals.amphetamineMg,
+          unit: "mg",
+          sticker: NUTRIENT_STICKERS.medication,
+        },
+      ].filter((card) => hasMetricValue(card.value)),
+    [dailyPersonTotals],
+  );
+  const selectedMetricCards = useMemo<MetricCardConfig[]>(
+    () =>
+      [
+        {
+          key: "calories",
+          label: "Calories",
+          value: selectedScaledTotals.calories,
+          unit: "",
+          dv: DAILY_VALUES.calories,
+          signalMode: "energy" as const,
+          sticker: NUTRIENT_STICKERS.calories,
+        },
+        {
+          key: "protein",
+          label: "Protein",
+          value: selectedScaledTotals.proteinG,
+          unit: "g",
+          dv: DAILY_VALUES.proteinG,
+          sticker: NUTRIENT_STICKERS.protein,
+        },
+        {
+          key: "carbs",
+          label: "Carbs",
+          value: selectedScaledTotals.carbsG,
+          unit: "g",
+          dv: DAILY_VALUES.carbsG,
+          sticker: NUTRIENT_STICKERS.carbs,
+        },
+        {
+          key: "fat",
+          label: "Fat",
+          value: selectedScaledTotals.fatG,
+          unit: "g",
+          dv: DAILY_VALUES.fatG,
+          signalMode: "limit" as const,
+          sticker: NUTRIENT_STICKERS.fat,
+        },
+        {
+          key: "fiber",
+          label: "Fiber",
+          value: selectedScaledTotals.fiberG,
+          unit: "g",
+          dv: DAILY_VALUES.fiberG,
+          sticker: NUTRIENT_STICKERS.fiber,
+        },
+        {
+          key: "sugar",
+          label: "Sugar",
+          value: selectedScaledTotals.sugarG,
+          unit: "g",
+          sticker: NUTRIENT_STICKERS.sugar,
+          sub: "Total sugar has no personal target",
+        },
+        {
+          key: "salt",
+          label: "Salt",
+          value: sodiumToSaltG(selectedScaledTotals.sodiumMg),
+          unit: "g",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.sodium,
+          sub: <TargetSignal value={selectedScaledTotals.sodiumMg} dailyValue={DAILY_VALUES.sodiumMg} mode="limit" />,
+        },
+        {
+          key: "potassium",
+          label: "Potassium",
+          value: selectedScaledTotals.potassiumMg,
+          unit: "mg",
+          dv: DAILY_VALUES.potassiumMg,
+          sticker: NUTRIENT_STICKERS.potassium,
+        },
+        {
+          key: "calcium",
+          label: "Calcium",
+          value: selectedScaledTotals.calciumMg,
+          unit: "mg",
+          dv: DAILY_VALUES.calciumMg,
+        },
+        {
+          key: "caffeine",
+          label: "Caffeine",
+          value: selectedScaledTotals.caffeineMg,
+          unit: "mg",
+          sticker: NUTRIENT_STICKERS.caffeine,
+        },
+        {
+          key: "alcohol",
+          label: "Alcohol",
+          value: selectedScaledTotals.alcoholG,
+          unit: "g",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.alcohol,
+        },
+        {
+          key: "thc",
+          label: "THC",
+          value: selectedScaledTotals.thcMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "cbd",
+          label: "CBD",
+          value: selectedScaledTotals.cbdMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "cbn",
+          label: "CBN",
+          value: selectedScaledTotals.cbnMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "cbg",
+          label: "CBG",
+          value: selectedScaledTotals.cbgMg,
+          unit: "mg",
+          digits: 1,
+          sticker: NUTRIENT_STICKERS.cannabis,
+        },
+        {
+          key: "amphetamine",
+          label: "Medication",
+          value: selectedScaledTotals.amphetamineMg,
+          unit: "mg",
+          sticker: NUTRIENT_STICKERS.medication,
+        },
+      ].filter((card) => hasMetricValue(card.value)),
+    [selectedScaledTotals],
+  );
   const laneStyle = {
     "--receipt-lane": outlineCollapsed ? "52px" : `${outlineWidth}px`,
     "--details-lane": detailsCollapsed ? "52px" : `${detailsWidth}px`,
@@ -1357,64 +1605,9 @@ export function ReceiptNutritionTracker({
           sub={`${trackedTotals.knownItems} with nutrition totals`}
         />
         <SummaryCard label="Plan range" value={`${startDate}`} sub={`to ${planEnd}`} />
-        <NutrientCard
-          label="Daily calories / person"
-          value={dailyPersonTotals.calories}
-          unit=""
-          dv={DAILY_VALUES.calories}
-          signalMode="energy"
-          sticker={NUTRIENT_STICKERS.calories}
-        />
-        <NutrientCard
-          label="Daily protein / person"
-          value={dailyPersonTotals.proteinG}
-          unit="g"
-          dv={DAILY_VALUES.proteinG}
-          sticker={NUTRIENT_STICKERS.protein}
-        />
-        <NutrientCard
-          label="Daily carbs / person"
-          value={dailyPersonTotals.carbsG}
-          unit="g"
-          dv={DAILY_VALUES.carbsG}
-          sticker={NUTRIENT_STICKERS.carbs}
-        />
-        <NutrientCard
-          label="Daily fat / person"
-          value={dailyPersonTotals.fatG}
-          unit="g"
-          dv={DAILY_VALUES.fatG}
-          signalMode="limit"
-          sticker={NUTRIENT_STICKERS.fat}
-        />
-        <NutrientCard
-          label="Daily sodium / person"
-          value={dailyPersonTotals.sodiumMg}
-          unit="mg"
-          dv={DAILY_VALUES.sodiumMg}
-          signalMode="limit"
-          sticker={NUTRIENT_STICKERS.sodium}
-        />
-        <NutrientCard
-          label="Daily potassium / person"
-          value={dailyPersonTotals.potassiumMg}
-          unit="mg"
-          dv={DAILY_VALUES.potassiumMg}
-          sticker={NUTRIENT_STICKERS.potassium}
-        />
-        <NutrientCard
-          label="Daily caffeine / person"
-          value={dailyPersonTotals.caffeineMg}
-          unit="mg"
-          sticker={NUTRIENT_STICKERS.caffeine}
-        />
-        <NutrientCard
-          label="Daily alcohol / person"
-          value={dailyPersonTotals.alcoholG}
-          unit="g"
-          digits={1}
-          sticker={NUTRIENT_STICKERS.alcohol}
-        />
+        {dailyMetricCards.map((card) => (
+          <MetricCard key={card.key} card={card} />
+        ))}
       </div>
       <div className="mt-2 text-xs text-zinc-500">
         Signals: <span className="font-medium text-red-600 dark:text-red-400">↓↓ low</span>,{" "}
@@ -1984,116 +2177,19 @@ export function ReceiptNutritionTracker({
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
-            <NutrientCard
-              label="Calories"
-              value={selectedScaledTotals.calories}
-              unit=""
-              dv={DAILY_VALUES.calories}
-              signalMode="energy"
-              sticker={NUTRIENT_STICKERS.calories}
-            />
-            <SummaryCard label="Price" value={formatMoney(selectedScaledTotals.price)} />
-            <NutrientCard
-              label="Protein"
-              value={selectedScaledTotals.proteinG}
-              unit="g"
-              dv={DAILY_VALUES.proteinG}
-              sticker={NUTRIENT_STICKERS.protein}
-            />
-            <NutrientCard
-              label="Carbs"
-              value={selectedScaledTotals.carbsG}
-              unit="g"
-              dv={DAILY_VALUES.carbsG}
-              sticker={NUTRIENT_STICKERS.carbs}
-            />
-            <NutrientCard
-              label="Fat"
-              value={selectedScaledTotals.fatG}
-              unit="g"
-              dv={DAILY_VALUES.fatG}
-              signalMode="limit"
-              sticker={NUTRIENT_STICKERS.fat}
-            />
-            <NutrientCard
-              label="Fiber"
-              value={selectedScaledTotals.fiberG}
-              unit="g"
-              dv={DAILY_VALUES.fiberG}
-              sticker={NUTRIENT_STICKERS.fiber}
-            />
-            <SummaryCard
-              label="Sugar"
-              value={`${formatNumber(selectedScaledTotals.sugarG)}g`}
-              sub="Total sugar has no personal target"
-              sticker={NUTRIENT_STICKERS.sugar}
-            />
-            <SummaryCard
-              label="Salt"
-              value={`${formatNumber(sodiumToSaltG(selectedScaledTotals.sodiumMg), 1)}g`}
-              sub={<TargetSignal value={selectedScaledTotals.sodiumMg} dailyValue={DAILY_VALUES.sodiumMg} mode="limit" />}
-              sticker={NUTRIENT_STICKERS.sodium}
-            />
-            <NutrientCard
-              label="Potassium"
-              value={selectedScaledTotals.potassiumMg}
-              unit="mg"
-              dv={DAILY_VALUES.potassiumMg}
-              sticker={NUTRIENT_STICKERS.potassium}
-            />
-            <NutrientCard
-              label="Calcium"
-              value={selectedScaledTotals.calciumMg}
-              unit="mg"
-              dv={DAILY_VALUES.calciumMg}
-            />
-            <NutrientCard
-              label="Caffeine"
-              value={selectedScaledTotals.caffeineMg}
-              unit="mg"
-              sticker={NUTRIENT_STICKERS.caffeine}
-            />
-            <NutrientCard
-              label="Alcohol"
-              value={selectedScaledTotals.alcoholG}
-              unit="g"
-              digits={1}
-              sticker={NUTRIENT_STICKERS.alcohol}
-            />
-            <NutrientCard
-              label="THC"
-              value={selectedScaledTotals.thcMg}
-              unit="mg"
-              digits={1}
-              sticker={NUTRIENT_STICKERS.cannabis}
-            />
-            <NutrientCard
-              label="CBD"
-              value={selectedScaledTotals.cbdMg}
-              unit="mg"
-              digits={1}
-              sticker={NUTRIENT_STICKERS.cannabis}
-            />
-            <NutrientCard
-              label="CBN"
-              value={selectedScaledTotals.cbnMg}
-              unit="mg"
-              digits={1}
-              sticker={NUTRIENT_STICKERS.cannabis}
-            />
-            <NutrientCard
-              label="CBG"
-              value={selectedScaledTotals.cbgMg}
-              unit="mg"
-              digits={1}
-              sticker={NUTRIENT_STICKERS.cannabis}
-            />
-            <NutrientCard
-              label="Amphetamine"
-              value={selectedScaledTotals.amphetamineMg}
-              unit="mg"
-              sticker={NUTRIENT_STICKERS.medication}
-            />
+            {hasMetricValue(selectedScaledTotals.price) ? (
+              <SummaryCard label="Price" value={formatMoney(selectedScaledTotals.price)} />
+            ) : null}
+            {selectedMetricCards.map((card) => (
+              <MetricCard key={card.key} card={card} />
+            ))}
+            {!hasMetricValue(selectedScaledTotals.price) && selectedMetricCards.length === 0 ? (
+              <SummaryCard
+                label="Selection"
+                value={`${selectedTotals.itemCount}`}
+                sub="Select rows with nutrition values to see a compact summary."
+              />
+            ) : null}
           </div>
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-3">

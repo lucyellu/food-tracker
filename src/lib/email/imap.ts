@@ -46,6 +46,8 @@ export type EmailSyncResult = {
   failed: number;
   duplicates: number;
   rateLimited: boolean;
+  nextPageToken: string | null;
+  resultSizeEstimate: number | null;
   query: string;
   merchant: string;
   days: number;
@@ -106,6 +108,8 @@ function emptyResult(connection: ImapAccountConnection, merchant: GmailMerchantP
     failed: 0,
     duplicates: 0,
     rateLimited: false,
+    nextPageToken: null,
+    resultSizeEstimate: null,
     query: `${connection.mailbox} since ${dateDaysAgo(days).toISOString().slice(0, 10)}`,
     merchant,
     days,
@@ -144,16 +148,23 @@ async function findPriorSkippedCandidate(messageId: string) {
   return reusable ? prior : null;
 }
 
+function parseImapOffset(pageToken: string | null | undefined) {
+  const offset = Number(pageToken);
+  return Number.isFinite(offset) && offset > 0 ? Math.floor(offset) : 0;
+}
+
 export async function processImapAccount(
   connection: ImapAccountConnection,
   {
     maxResults = 10,
     merchant = "all",
     days = 90,
+    pageToken,
   }: {
     maxResults?: number;
     merchant?: GmailMerchantPresetId;
     days?: number;
+    pageToken?: string | null;
   } = {},
 ) {
   const result = emptyResult(connection, merchant, days);
@@ -171,7 +182,11 @@ export async function processImapAccount(
     const lock = await client.getMailboxLock(connection.mailbox, { readOnly: true });
     try {
       const uids = await client.search({ since: dateDaysAgo(days) }, { uid: true });
-      const latestUids = (uids || []).sort((a, b) => b - a).slice(0, maxResults);
+      const offset = parseImapOffset(pageToken);
+      const sortedUids = (uids || []).sort((a, b) => b - a);
+      result.resultSizeEstimate = sortedUids.length;
+      const latestUids = sortedUids.slice(offset, offset + maxResults);
+      result.nextPageToken = offset + maxResults < sortedUids.length ? String(offset + maxResults) : null;
       if (latestUids.length === 0) return result;
 
       for await (const message of client.fetch(
@@ -347,7 +362,10 @@ export async function processImapAccount(
             status: "failed",
             errorText: conciseParseError(error),
           });
-          if (isRateLimitError(error)) break;
+          if (isRateLimitError(error)) {
+            result.nextPageToken = pageToken ?? null;
+            break;
+          }
         }
       }
     } finally {

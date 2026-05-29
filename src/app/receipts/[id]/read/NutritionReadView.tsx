@@ -707,14 +707,14 @@ export function NutritionReadView({
 
         <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
           {[
-            ["Caffeine", `${fmt(daily.caffeineMg)} mg`],
-            ["Alcohol", `${fmt(daily.alcoholG, 1)} g`],
-            ["THC", `${fmt(daily.thcMg, 1)} mg`],
-            ["CBD", `${fmt(daily.cbdMg, 1)} mg`],
-            ["CBN", `${fmt(daily.cbnMg, 1)} mg`],
-            ["CBG", `${fmt(daily.cbgMg, 1)} mg`],
-            ["Amphetamine", `${fmt(daily.amphetamineMg, 1)} mg`],
-          ].map(([label, value]) => (
+            ["Caffeine", daily.caffeineMg, `${fmt(daily.caffeineMg)} mg`],
+            ["Alcohol", daily.alcoholG, `${fmt(daily.alcoholG, 1)} g`],
+            ["THC", daily.thcMg, `${fmt(daily.thcMg, 1)} mg`],
+            ["CBD", daily.cbdMg, `${fmt(daily.cbdMg, 1)} mg`],
+            ["CBN", daily.cbnMg, `${fmt(daily.cbnMg, 1)} mg`],
+            ["CBG", daily.cbgMg, `${fmt(daily.cbgMg, 1)} mg`],
+            ["Medication", daily.amphetamineMg, `${fmt(daily.amphetamineMg, 1)} mg`],
+          ].filter(([, rawValue]) => Number(rawValue) > 0).map(([label, , value]) => (
             <div key={label} className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
               <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</div>
               <div className="mt-1 text-xl font-semibold">{value}</div>

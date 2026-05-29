@@ -25,9 +25,13 @@ export type MultiEmailSyncResult = Omit<
       | "failed"
       | "duplicates"
       | "rateLimited"
+      | "nextPageToken"
+      | "resultSizeEstimate"
       | "query"
     > & { error?: string }
   >;
+  hasMore: boolean;
+  pageTokens: Record<string, string>;
 };
 
 function emptyMultiResult(merchant: GmailMerchantPresetId, days: number): MultiEmailSyncResult {
@@ -43,11 +47,15 @@ function emptyMultiResult(merchant: GmailMerchantPresetId, days: number): MultiE
     failed: 0,
     duplicates: 0,
     rateLimited: false,
+    nextPageToken: null,
+    resultSizeEstimate: null,
     query: "all enabled inboxes",
     merchant,
     days,
     receipts: [],
     accounts: [],
+    hasMore: false,
+    pageTokens: {},
   };
 }
 
@@ -63,6 +71,14 @@ function addAccountResult(target: MultiEmailSyncResult, source: EmailSyncResult)
   target.failed += source.failed;
   target.duplicates += source.duplicates;
   target.rateLimited ||= source.rateLimited;
+  target.resultSizeEstimate =
+    source.resultSizeEstimate == null
+      ? target.resultSizeEstimate
+      : (target.resultSizeEstimate ?? 0) + source.resultSizeEstimate;
+  if (source.nextPageToken && source.accountId != null) {
+    target.hasMore = true;
+    target.pageTokens[String(source.accountId)] = source.nextPageToken;
+  }
   target.receipts.push(...source.receipts);
   target.accounts.push({
     accountId: source.accountId,
@@ -79,6 +95,8 @@ function addAccountResult(target: MultiEmailSyncResult, source: EmailSyncResult)
     failed: source.failed,
     duplicates: source.duplicates,
     rateLimited: source.rateLimited,
+    nextPageToken: source.nextPageToken,
+    resultSizeEstimate: source.resultSizeEstimate,
     query: source.query,
   });
 }
@@ -88,11 +106,13 @@ export async function processEmailInboxes({
   merchant = "all",
   days = 90,
   accountId,
+  pageTokens,
 }: {
   maxResults?: number;
   merchant?: GmailMerchantPresetId;
   days?: number;
   accountId?: number | null;
+  pageTokens?: Record<string, string | null | undefined>;
 } = {}) {
   const accounts = accountId
     ? [await getEmailAccount(accountId)].filter(Boolean)
@@ -116,7 +136,7 @@ export async function processEmailInboxes({
               query: account.query,
               refreshToken: decryptEmailAccountSecret(account),
             },
-            { maxResults, merchant, days },
+            { maxResults, merchant, days, pageToken: pageTokens?.[String(account.id)] },
           ),
         );
         if (result.rateLimited) break;
@@ -132,7 +152,7 @@ export async function processEmailInboxes({
               mailbox: account.mailbox,
               password: decryptEmailAccountSecret(account),
             },
-            { maxResults, merchant, days },
+            { maxResults, merchant, days, pageToken: pageTokens?.[String(account.id)] },
           ),
         );
         if (result.rateLimited) break;
@@ -154,6 +174,8 @@ export async function processEmailInboxes({
         failed: 1,
         duplicates: 0,
         rateLimited: false,
+        nextPageToken: null,
+        resultSizeEstimate: null,
         query: account.query ?? account.mailbox,
         error: error instanceof Error ? error.message : String(error),
       });
