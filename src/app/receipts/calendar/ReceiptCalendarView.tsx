@@ -5,7 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Search, ShoppingBag, Utensils 
 import { useMemo, useState } from "react";
 import { receiptDedupeSignature } from "@/lib/receipts/signature";
 
-type DateMode = "bought" | "consumed";
+type DateMode = "bought" | "estimated";
 
 export type CalendarReceipt = {
   id: number;
@@ -34,16 +34,66 @@ export type CalendarItem = {
   proteinG: number | null;
   carbsG: number | null;
   fatG: number | null;
+  alcoholG: number | null;
+  caffeineMg: number | null;
+  activeIngredientsJson: string | null;
 };
 
-export type CalendarLog = {
-  id: number;
-  receiptId: number;
-  lineItemId: number;
-  consumedAt: string;
-  amount: number;
-  unit: "item" | "serving" | "g" | "100g";
-  note: string | null;
+type NutritionMeta = {
+  basis?: string;
+  entryType?: string;
+  packageGrams?: number | null;
+  active?: {
+    alcoholG?: number | null;
+    caffeineMg?: number | null;
+    thcMg?: number | null;
+    cbdMg?: number | null;
+    cbnMg?: number | null;
+    cbgMg?: number | null;
+    totalThcMg?: number | null;
+    totalCbdMg?: number | null;
+    terpeneMg?: number | null;
+  };
+  per100g?: {
+    calories?: number | null;
+    proteinG?: number | null;
+    carbsG?: number | null;
+    fatG?: number | null;
+    alcoholG?: number | null;
+    caffeineMg?: number | null;
+  };
+};
+
+type EstimateTotals = {
+  price: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  activeGrams: number;
+  alcoholG: number;
+  caffeineMg: number;
+  thcMg: number;
+  cbdMg: number;
+  cbnMg: number;
+  cbgMg: number;
+  terpeneMg: number;
+  itemCount: number;
+  knownItems: number;
+};
+
+type EstimateInterval = {
+  id: string;
+  vendorKey: string;
+  vendorLabel: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  projected: boolean;
+  receipt: CalendarReceipt;
+  items: CalendarItem[];
+  totals: EstimateTotals;
+  daily: EstimateTotals;
 };
 
 type CalendarEvent =
@@ -57,26 +107,21 @@ type CalendarEvent =
   | {
       id: string;
       date: string;
-      kind: "log";
-      item: CalendarItem;
-      log: CalendarLog | null;
+      kind: "estimate";
+      interval: EstimateInterval;
+      totals: EstimateTotals;
     };
 
 type ItemRow = {
   id: string;
   date: string | null;
   item: CalendarItem;
-  log: CalendarLog | null;
-};
-
-type MacroTotals = {
-  calories: number;
-  proteinG: number;
-  carbsG: number;
-  fatG: number;
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const GRAMS_PER_OUNCE = 28.349523125;
+const ACTIVE_ITEM_SIGNAL_RE =
+  /\b(dutch\s*love|thc|cbd|cbn|cbg|pre[-\s]?roll|preroll|flower|indica|sativa|hybrid|rosin|hash|vape|cart|edible|gumm(?:y|ies)|joint)\b/i;
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -105,6 +150,12 @@ function addDays(value: string, amount: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function daysBetween(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00.000Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00.000Z`).getTime();
+  return Math.round((end - start) / 86_400_000);
+}
+
 function calendarDays(cursor: string) {
   const start = new Date(`${monthStartIso(cursor)}T00:00:00.000Z`);
   const gridStart = addDays(start.toISOString().slice(0, 10), -start.getUTCDay());
@@ -129,6 +180,14 @@ function formatDate(value: string | null) {
   });
 }
 
+function formatShortDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function formatMoney(value: number | null) {
   if (value == null) return "";
   return `$${value.toFixed(2)}`;
@@ -139,8 +198,25 @@ function formatQty(quantity: number, unit: string) {
   return `${amount} ${unit}`;
 }
 
-function formatMacro(value: number) {
+function formatNumber(value: number, digits = 0) {
+  return value.toLocaleString(undefined, { maximumFractionDigits: digits });
+}
+
+function formatMetric(value: number) {
   return value >= 100 ? value.toFixed(0) : value.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatActiveGrams(value: number) {
+  if (value >= 10) return `${formatNumber(value, 1)}g`;
+  return `${formatNumber(value, 2)}g`;
+}
+
+function formatMg(value: number) {
+  return value >= 100 ? `${formatNumber(value)}mg` : `${formatNumber(value, 1)}mg`;
+}
+
+function formatAlcoholOz(alcoholG: number) {
+  return `${formatNumber(alcoholG / GRAMS_PER_OUNCE, 2)}oz`;
 }
 
 function eventDateForReceipt(receipt: CalendarReceipt) {
@@ -151,46 +227,292 @@ function boughtDateForItem(item: CalendarItem) {
   return datePart(item.receiptPurchasedAt);
 }
 
-function emptyMacros(): MacroTotals {
-  return { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 };
+function emptyTotals(): EstimateTotals {
+  return {
+    price: 0,
+    calories: 0,
+    proteinG: 0,
+    carbsG: 0,
+    fatG: 0,
+    activeGrams: 0,
+    alcoholG: 0,
+    caffeineMg: 0,
+    thcMg: 0,
+    cbdMg: 0,
+    cbnMg: 0,
+    cbgMg: 0,
+    terpeneMg: 0,
+    itemCount: 0,
+    knownItems: 0,
+  };
 }
 
-function addItemMacros(target: MacroTotals, item: CalendarItem, factor: number) {
-  target.calories += (item.calories ?? 0) * factor;
-  target.proteinG += (item.proteinG ?? 0) * factor;
-  target.carbsG += (item.carbsG ?? 0) * factor;
-  target.fatG += (item.fatG ?? 0) * factor;
+function addTotals(target: EstimateTotals, source: EstimateTotals) {
+  target.price += source.price;
+  target.calories += source.calories;
+  target.proteinG += source.proteinG;
+  target.carbsG += source.carbsG;
+  target.fatG += source.fatG;
+  target.activeGrams += source.activeGrams;
+  target.alcoholG += source.alcoholG;
+  target.caffeineMg += source.caffeineMg;
+  target.thcMg += source.thcMg;
+  target.cbdMg += source.cbdMg;
+  target.cbnMg += source.cbnMg;
+  target.cbgMg += source.cbgMg;
+  target.terpeneMg += source.terpeneMg;
+  target.itemCount += source.itemCount;
+  target.knownItems += source.knownItems;
 }
 
-function logFactor(item: CalendarItem, log: CalendarLog | null) {
-  if (!log) return 1;
-  if (log.unit === "g" || log.unit === "100g") {
-    const grams = log.unit === "g" ? log.amount : log.amount * 100;
-    return item.totalGrams && item.totalGrams > 0 ? grams / item.totalGrams : grams / 100;
+function scaledTotals(totals: EstimateTotals, divisor: number) {
+  if (divisor <= 0) return emptyTotals();
+  return {
+    price: totals.price / divisor,
+    calories: totals.calories / divisor,
+    proteinG: totals.proteinG / divisor,
+    carbsG: totals.carbsG / divisor,
+    fatG: totals.fatG / divisor,
+    activeGrams: totals.activeGrams / divisor,
+    alcoholG: totals.alcoholG / divisor,
+    caffeineMg: totals.caffeineMg / divisor,
+    thcMg: totals.thcMg / divisor,
+    cbdMg: totals.cbdMg / divisor,
+    cbnMg: totals.cbnMg / divisor,
+    cbgMg: totals.cbgMg / divisor,
+    terpeneMg: totals.terpeneMg / divisor,
+    itemCount: totals.itemCount,
+    knownItems: totals.knownItems,
+  };
+}
+
+function eventsTotals(events: CalendarEvent[]) {
+  return events.reduce((totals, event) => {
+    if (event.kind === "estimate") addTotals(totals, event.totals);
+    return totals;
+  }, emptyTotals());
+}
+
+function parseMeta(value: string | null | undefined): NutritionMeta {
+  if (!value) return {};
+  try {
+    return JSON.parse(value) as NutritionMeta;
+  } catch {
+    return {};
   }
-  return item.quantity > 0 ? log.amount / item.quantity : log.amount;
 }
 
-function eventMacros(event: CalendarEvent) {
-  const totals = emptyMacros();
-  if (event.kind !== "log") return totals;
-  addItemMacros(totals, event.item, logFactor(event.item, event.log));
+function finite(value: number | null | undefined) {
+  return value != null && Number.isFinite(value) ? value : 0;
+}
+
+function itemValues(item: CalendarItem) {
+  const meta = parseMeta(item.activeIngredientsJson);
+  const per100gOnly = meta.basis === "per_100g_reference_only";
+  const active = meta.active;
+  return {
+    meta,
+    calories: per100gOnly ? meta.per100g?.calories : item.calories,
+    proteinG: per100gOnly ? meta.per100g?.proteinG : item.proteinG,
+    carbsG: per100gOnly ? meta.per100g?.carbsG : item.carbsG,
+    fatG: per100gOnly ? meta.per100g?.fatG : item.fatG,
+    alcoholG: per100gOnly ? meta.per100g?.alcoholG : (item.alcoholG ?? active?.alcoholG),
+    caffeineMg: per100gOnly ? meta.per100g?.caffeineMg : (item.caffeineMg ?? active?.caffeineMg),
+    thcMg: active?.thcMg ?? active?.totalThcMg,
+    cbdMg: active?.cbdMg ?? active?.totalCbdMg,
+    cbnMg: active?.cbnMg,
+    cbgMg: active?.cbgMg,
+    terpeneMg: active?.terpeneMg,
+  };
+}
+
+function hasActiveCompounds(values: ReturnType<typeof itemValues>) {
+  return [values.thcMg, values.cbdMg, values.cbnMg, values.cbgMg, values.terpeneMg].some(
+    (value) => finite(value) > 0,
+  );
+}
+
+function packageGramsFromName(name: string) {
+  const multi = name.match(/\b(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i);
+  if (multi) return Number(multi[1]) * Number(multi[2]);
+
+  const grams = name.match(/\((\d+(?:\.\d+)?)\s*g(?:rams?)?\)/i) ?? name.match(/\b(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i);
+  return grams ? Number(grams[1]) : null;
+}
+
+function activePackageGrams(item: CalendarItem, meta: NutritionMeta) {
+  if (item.totalGrams != null && item.totalGrams > 0) return item.totalGrams;
+  if (meta.packageGrams != null && meta.packageGrams > 0) return meta.packageGrams;
+  if (item.unit.toLowerCase() === "g" && item.quantity > 1) return item.quantity;
+  return packageGramsFromName(item.rawName);
+}
+
+function addItemEstimate(target: EstimateTotals, item: CalendarItem) {
+  const values = itemValues(item);
+  const activeItem =
+    values.meta.entryType === "cannabis" ||
+    hasActiveCompounds(values) ||
+    ACTIVE_ITEM_SIGNAL_RE.test(`${item.receiptVendor ?? ""} ${item.rawName}`);
+
+  target.itemCount += 1;
+  if (item.totalGrams || values.meta.basis === "manual_entry") target.knownItems += 1;
+  target.calories += finite(values.calories);
+  target.proteinG += finite(values.proteinG);
+  target.carbsG += finite(values.carbsG);
+  target.fatG += finite(values.fatG);
+  target.alcoholG += finite(values.alcoholG);
+  target.caffeineMg += finite(values.caffeineMg);
+  target.thcMg += finite(values.thcMg);
+  target.cbdMg += finite(values.cbdMg);
+  target.cbnMg += finite(values.cbnMg);
+  target.cbgMg += finite(values.cbgMg);
+  target.terpeneMg += finite(values.terpeneMg);
+
+  if (activeItem) {
+    target.activeGrams += finite(activePackageGrams(item, values.meta));
+  }
+}
+
+function receiptEstimateTotals(receipt: CalendarReceipt, items: CalendarItem[]) {
+  const totals = emptyTotals();
+  totals.price = receipt.total ?? items.reduce((sum, item) => sum + (item.price ?? 0), 0);
+  for (const item of items) addItemEstimate(totals, item);
   return totals;
 }
 
-function eventsMacros(events: CalendarEvent[]) {
-  return events.reduce((totals, event) => {
-    const macros = eventMacros(event);
-    totals.calories += macros.calories;
-    totals.proteinG += macros.proteinG;
-    totals.carbsG += macros.carbsG;
-    totals.fatG += macros.fatG;
-    return totals;
-  }, emptyMacros());
+function hasEstimateValue(totals: EstimateTotals) {
+  return (
+    totals.price > 0 ||
+    totals.calories > 0 ||
+    totals.activeGrams > 0 ||
+    totals.alcoholG > 0 ||
+    totals.thcMg > 0 ||
+    totals.cbdMg > 0
+  );
 }
 
-function statusLabel(status: string) {
-  return status.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function titleCase(value: string) {
+  return value.replace(/\b[a-z]/g, (char) => char.toUpperCase());
+}
+
+function vendorBucket(vendor: string | null) {
+  const raw = vendor?.trim() || "Unknown";
+  const lower = raw.toLowerCase();
+  if (/\b(?:t&t|tnt|tntsupermarket)\b/i.test(raw)) return { key: "tnt", label: "T&T Supermarket" };
+  if (/price\s*smart|pricesmart/i.test(raw)) return { key: "pricesmart", label: "PriceSmart Foods" };
+  if (/uber\s*eats|\bubereats\b/i.test(raw)) return { key: "ubereats", label: "Uber Eats" };
+  if (/dutch\s*love/i.test(raw)) return { key: "dutch-love", label: "Dutch Love" };
+
+  const cleaned = lower
+    .replace(/\s+-\s*order\s*#?\s*[a-z0-9-]+/g, "")
+    .replace(/\border\s*#?\s*[a-z0-9-]+/g, "")
+    .replace(/#[a-z0-9-]+/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+  return {
+    key: cleaned || "unknown",
+    label: cleaned ? titleCase(cleaned) : raw,
+  };
+}
+
+function median(values: number[]) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? Math.round((sorted[middle - 1] + sorted[middle]) / 2) : sorted[middle];
+}
+
+function clampedIntervalDays(days: number | null) {
+  if (!days || days <= 0) return null;
+  return Math.min(Math.max(Math.round(days), 1), 365);
+}
+
+function buildEstimateIntervals(
+  receipts: CalendarReceipt[],
+  itemsByReceiptId: Map<number, CalendarItem[]>,
+  primaryReceiptIds: Set<number>,
+) {
+  const grouped = new Map<
+    string,
+    Array<{ receipt: CalendarReceipt; date: string; vendorKey: string; vendorLabel: string; totals: EstimateTotals }>
+  >();
+
+  for (const receipt of receipts) {
+    if (!primaryReceiptIds.has(receipt.id)) continue;
+    const date = eventDateForReceipt(receipt);
+    if (!date) continue;
+    const bucket = vendorBucket(receipt.vendor);
+    const items = itemsByReceiptId.get(receipt.id) ?? [];
+    const totals = receiptEstimateTotals(receipt, items);
+    if (!hasEstimateValue(totals)) continue;
+
+    const list = grouped.get(bucket.key) ?? [];
+    list.push({
+      receipt,
+      date,
+      vendorKey: bucket.key,
+      vendorLabel: bucket.label,
+      totals,
+    });
+    grouped.set(bucket.key, list);
+  }
+
+  const intervals: EstimateInterval[] = [];
+
+  for (const group of grouped.values()) {
+    const sorted = [...group].sort((a, b) => a.date.localeCompare(b.date) || a.receipt.id - b.receipt.id);
+    if (sorted.length < 2) continue;
+
+    const repeatDays = sorted
+      .slice(0, -1)
+      .map((entry, index) => daysBetween(entry.date, sorted[index + 1].date))
+      .filter((days) => days > 0);
+    const medianDays = clampedIntervalDays(median(repeatDays));
+
+    for (const [index, entry] of sorted.entries()) {
+      const next = sorted[index + 1];
+      const days = clampedIntervalDays(next ? daysBetween(entry.date, next.date) : medianDays);
+      if (!days) continue;
+
+      const daily = scaledTotals(entry.totals, days);
+      intervals.push({
+        id: `${entry.vendorKey}-${entry.receipt.id}-${entry.date}`,
+        vendorKey: entry.vendorKey,
+        vendorLabel: entry.vendorLabel,
+        startDate: entry.date,
+        endDate: addDays(entry.date, days - 1),
+        days,
+        projected: !next,
+        receipt: entry.receipt,
+        items: itemsByReceiptId.get(entry.receipt.id) ?? [],
+        totals: entry.totals,
+        daily,
+      });
+    }
+  }
+
+  return intervals;
+}
+
+function intervalMatchesSearch(interval: EstimateInterval, search: string) {
+  if (!search) return true;
+  const haystack = [
+    interval.vendorLabel,
+    interval.receipt.vendor,
+    interval.receipt.total,
+    ...interval.items.map((item) => item.rawName),
+  ].join(" ");
+  return haystack.toLowerCase().includes(search);
+}
+
+function eventMatchesSearch(event: CalendarEvent, search: string) {
+  if (!search) return true;
+  if (event.kind === "receipt") {
+    const haystack = `${event.receipt.vendor ?? ""} ${event.receipt.total ?? ""}`;
+    return haystack.toLowerCase().includes(search);
+  }
+  return intervalMatchesSearch(event.interval, search);
 }
 
 function modeClasses(active: boolean) {
@@ -199,23 +521,33 @@ function modeClasses(active: boolean) {
     : "border-zinc-200 bg-white hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800";
 }
 
-function eventMatchesSearch(event: CalendarEvent, search: string) {
-  if (!search) return true;
-  const haystack =
-    event.kind === "receipt"
-      ? `${event.receipt.vendor ?? ""} ${event.receipt.total ?? ""}`
-      : `${event.item.rawName} ${event.item.receiptVendor ?? ""} ${event.log?.note ?? ""}`;
-  return haystack.toLowerCase().includes(search);
+function dailyBrief(totals: EstimateTotals) {
+  const metrics = [
+    totals.price > 0 ? `${formatMoney(totals.price)}/d` : null,
+    totals.calories > 0 ? `${formatMetric(totals.calories)} cal` : null,
+    totals.activeGrams > 0 ? `Active ${formatActiveGrams(totals.activeGrams)}` : null,
+    totals.alcoholG > 0 ? `Alc ${formatAlcoholOz(totals.alcoholG)}` : null,
+  ].filter(Boolean);
+  return metrics.slice(0, 3).join(" · ");
+}
+
+function activeLine(totals: EstimateTotals) {
+  const metrics = [
+    totals.thcMg > 0 ? `THC ${formatMg(totals.thcMg)}` : null,
+    totals.cbdMg > 0 ? `CBD ${formatMg(totals.cbdMg)}` : null,
+    totals.cbnMg > 0 ? `CBN ${formatMg(totals.cbnMg)}` : null,
+    totals.cbgMg > 0 ? `CBG ${formatMg(totals.cbgMg)}` : null,
+    totals.terpeneMg > 0 ? `Terp ${formatMg(totals.terpeneMg)}` : null,
+  ].filter(Boolean);
+  return metrics.slice(0, 3).join(" · ");
 }
 
 export function ReceiptCalendarView({
   receipts,
   items,
-  logs,
 }: {
   receipts: CalendarReceipt[];
   items: CalendarItem[];
-  logs: CalendarLog[];
 }) {
   const [mode, setMode] = useState<DateMode>("bought");
   const latestBoughtDate = receipts
@@ -227,7 +559,6 @@ export function ReceiptCalendarView({
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
 
-  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
   const itemsByReceiptId = useMemo(() => {
     const map = new Map<number, CalendarItem[]>();
     for (const item of items) {
@@ -237,15 +568,6 @@ export function ReceiptCalendarView({
     }
     return map;
   }, [items]);
-  const logsByItemId = useMemo(() => {
-    const map = new Map<number, CalendarLog[]>();
-    for (const log of logs) {
-      const list = map.get(log.lineItemId) ?? [];
-      list.push(log);
-      map.set(log.lineItemId, list);
-    }
-    return map;
-  }, [logs]);
 
   const boughtDedupe = useMemo(() => {
     const bySignature = new Map<
@@ -255,7 +577,7 @@ export function ReceiptCalendarView({
     const undated: CalendarReceipt[] = [];
 
     for (const receipt of receipts) {
-        const date = eventDateForReceipt(receipt);
+      const date = eventDateForReceipt(receipt);
       if (!date) {
         undated.push(receipt);
         continue;
@@ -293,31 +615,32 @@ export function ReceiptCalendarView({
   const receiptEvents = boughtDedupe.events;
   const primaryBoughtReceiptIds = boughtDedupe.primaryReceiptIds;
 
-  const consumedEvents = useMemo<CalendarEvent[]>(() => {
+  const estimateIntervals = useMemo(
+    () => buildEstimateIntervals(receipts, itemsByReceiptId, primaryBoughtReceiptIds),
+    [itemsByReceiptId, primaryBoughtReceiptIds, receipts],
+  );
+
+  const estimateEvents = useMemo<CalendarEvent[]>(() => {
     const events: CalendarEvent[] = [];
-    const loggedItemIds = new Set<number>();
-
-    for (const log of logs) {
-      const item = itemsById.get(log.lineItemId);
-      const date = datePart(log.consumedAt);
-      if (!item || !date) continue;
-      loggedItemIds.add(item.id);
-      events.push({ id: `log-${log.id}`, kind: "log", item, log, date });
+    for (const interval of estimateIntervals) {
+      for (let index = 0; index < interval.days; index += 1) {
+        const date = addDays(interval.startDate, index);
+        events.push({
+          id: `estimate-${interval.id}-${date}`,
+          kind: "estimate",
+          date,
+          interval,
+          totals: interval.daily,
+        });
+      }
     }
-
-    for (const item of items) {
-      const date = datePart(item.statusDate);
-      if (item.consumptionStatus !== "consumed" || !date || loggedItemIds.has(item.id)) continue;
-      events.push({ id: `status-${item.id}`, kind: "log", item, log: null, date });
-    }
-
     return events;
-  }, [items, itemsById, logs]);
+  }, [estimateIntervals]);
 
   const activeEvents = useMemo(() => {
-    const events = mode === "bought" ? receiptEvents : consumedEvents;
+    const events = mode === "bought" ? receiptEvents : estimateEvents;
     return events.filter((event) => eventMatchesSearch(event, query));
-  }, [consumedEvents, mode, query, receiptEvents]);
+  }, [estimateEvents, mode, query, receiptEvents]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -331,40 +654,37 @@ export function ReceiptCalendarView({
 
   const itemRows = useMemo<ItemRow[]>(() => {
     const rows: ItemRow[] = [];
-    if (mode === "bought") {
-      for (const item of items) {
-        if (!primaryBoughtReceiptIds.has(item.receiptId)) continue;
-        rows.push({ id: `item-${item.id}`, date: boughtDateForItem(item), item, log: null });
-      }
-    } else {
-      for (const item of items) {
-        const itemLogs = logsByItemId.get(item.id) ?? [];
-        if (itemLogs.length > 0) {
-          for (const log of itemLogs) {
-            const date = datePart(log.consumedAt);
-            if (date) rows.push({ id: `log-${log.id}`, date, item, log });
-          }
-        } else if (item.consumptionStatus === "consumed") {
-          rows.push({ id: `status-${item.id}`, date: datePart(item.statusDate) ?? boughtDateForItem(item), item, log: null });
-        }
-      }
+    for (const item of items) {
+      if (!primaryBoughtReceiptIds.has(item.receiptId)) continue;
+      rows.push({ id: `item-${item.id}`, date: boughtDateForItem(item), item });
     }
 
     return rows
       .filter((row) => {
         if (!query) return true;
-        return `${row.item.rawName} ${row.item.receiptVendor ?? ""} ${row.log?.note ?? ""}`.toLowerCase().includes(query);
+        return `${row.item.rawName} ${row.item.receiptVendor ?? ""}`.toLowerCase().includes(query);
       })
       .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || a.item.rawName.localeCompare(b.item.rawName));
-  }, [items, logsByItemId, mode, primaryBoughtReceiptIds, query]);
+  }, [items, primaryBoughtReceiptIds, query]);
+
+  const intervalRows = useMemo(
+    () =>
+      estimateIntervals
+        .filter((interval) => intervalMatchesSearch(interval, query))
+        .sort((a, b) => b.startDate.localeCompare(a.startDate) || a.vendorLabel.localeCompare(b.vendorLabel)),
+    [estimateIntervals, query],
+  );
 
   const days = calendarDays(cursor);
   const selectedMonth = cursor.slice(0, 7);
   const monthEvents = activeEvents.filter((event) => event.date.slice(0, 7) === selectedMonth);
-  const receiptSpend = mode === "bought"
-    ? monthEvents.reduce((sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0), 0)
-    : 0;
-  const consumedMonthMacros = mode === "consumed" ? eventsMacros(monthEvents) : emptyMacros();
+  const receiptSpend =
+    mode === "bought"
+      ? monthEvents.reduce((sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0), 0)
+      : 0;
+  const estimateMonthTotals = mode === "estimated" ? eventsTotals(monthEvents) : emptyTotals();
+  const estimateDays = mode === "estimated" ? new Set(monthEvents.map((event) => event.date)).size : 0;
+  const estimateDailyAverage = scaledTotals(estimateMonthTotals, estimateDays || 1);
   const undatedReceipts = boughtDedupe.undated.filter((receipt) =>
     eventMatchesSearch({ id: `undated-${receipt.id}`, kind: "receipt", receipt, duplicateCount: 0, date: "" }, query),
   );
@@ -400,11 +720,11 @@ export function ReceiptCalendarView({
           </button>
           <button
             type="button"
-            onClick={() => setMode("consumed")}
-            className={`inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium ${modeClasses(mode === "consumed")}`}
+            onClick={() => setMode("estimated")}
+            className={`inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium ${modeClasses(mode === "estimated")}`}
           >
             <Utensils className="size-4" />
-            Consumed
+            Estimated
           </button>
         </div>
       </div>
@@ -415,18 +735,24 @@ export function ReceiptCalendarView({
           <div className="mt-2 text-xl font-semibold">{monthTitle(cursor)}</div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Receipts" : "Consumed entries"}</div>
-          <div className="mt-2 text-xl font-semibold">{monthEvents.length}</div>
+          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Receipts" : "Estimate days"}</div>
+          <div className="mt-2 text-xl font-semibold">{mode === "bought" ? monthEvents.length : estimateDays}</div>
         </div>
         <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Spend" : "Calories"}</div>
+          <div className="text-xs font-medium uppercase text-zinc-500">{mode === "bought" ? "Spend" : "Daily avg"}</div>
           <div className="mt-2 text-xl font-semibold">
-            {mode === "bought" ? formatMoney(receiptSpend) || "$0.00" : formatMacro(consumedMonthMacros.calories)}
+            {mode === "bought"
+              ? formatMoney(receiptSpend) || "$0.00"
+              : estimateDailyAverage.price > 0
+                ? `${formatMoney(estimateDailyAverage.price)}/day`
+                : `${formatMetric(estimateDailyAverage.calories)} cal/day`}
           </div>
-          {mode === "consumed" ? (
+          {mode === "estimated" ? (
             <div className="mt-1 text-xs text-zinc-500">
-              P {formatMacro(consumedMonthMacros.proteinG)}g · C {formatMacro(consumedMonthMacros.carbsG)}g · F{" "}
-              {formatMacro(consumedMonthMacros.fatG)}g
+              {formatMetric(estimateDailyAverage.calories)} cal · P {formatMetric(estimateDailyAverage.proteinG)}g · C{" "}
+              {formatMetric(estimateDailyAverage.carbsG)}g · F {formatMetric(estimateDailyAverage.fatG)}g
+              {estimateDailyAverage.activeGrams > 0 ? ` · Active ${formatActiveGrams(estimateDailyAverage.activeGrams)}` : ""}
+              {estimateDailyAverage.alcoholG > 0 ? ` · Alc ${formatAlcoholOz(estimateDailyAverage.alcoholG)}` : ""}
             </div>
           ) : null}
         </div>
@@ -482,7 +808,8 @@ export function ReceiptCalendarView({
                   (sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0),
                   0,
                 );
-                const dayMacros = mode === "consumed" ? eventsMacros(dayEvents) : emptyMacros();
+                const dayEstimateTotals = mode === "estimated" ? eventsTotals(dayEvents) : emptyTotals();
+                const dayActiveLine = activeLine(dayEstimateTotals);
                 return (
                   <div
                     key={day}
@@ -503,13 +830,17 @@ export function ReceiptCalendarView({
                     {mode === "bought" && total > 0 ? (
                       <div className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">{formatMoney(total)}</div>
                     ) : null}
-                    {mode === "consumed" && dayMacros.calories > 0 ? (
+                    {mode === "estimated" && hasEstimateValue(dayEstimateTotals) ? (
                       <div className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
-                        <div className="font-medium">{formatMacro(dayMacros.calories)} cal</div>
-                        <div>
-                          P {formatMacro(dayMacros.proteinG)}g · C {formatMacro(dayMacros.carbsG)}g · F{" "}
-                          {formatMacro(dayMacros.fatG)}g
-                        </div>
+                        {dayEstimateTotals.price > 0 ? <div className="font-medium">{formatMoney(dayEstimateTotals.price)}/day</div> : null}
+                        {dayEstimateTotals.calories > 0 ? (
+                          <div>
+                            {formatMetric(dayEstimateTotals.calories)} cal · P {formatMetric(dayEstimateTotals.proteinG)}g
+                          </div>
+                        ) : null}
+                        {dayEstimateTotals.activeGrams > 0 ? <div>Active {formatActiveGrams(dayEstimateTotals.activeGrams)}</div> : null}
+                        {dayEstimateTotals.alcoholG > 0 ? <div>Alc {formatAlcoholOz(dayEstimateTotals.alcoholG)}</div> : null}
+                        {dayActiveLine ? <div>{dayActiveLine}</div> : null}
                       </div>
                     ) : null}
                     <div className="mt-2 space-y-1">
@@ -526,10 +857,10 @@ export function ReceiptCalendarView({
                         ) : (
                           <Link
                             key={event.id}
-                            href={`/receipts/${event.item.receiptId}`}
+                            href={`/receipts/${event.interval.receipt.id}`}
                             className="block truncate rounded border border-zinc-200 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                           >
-                            {event.item.rawName}
+                            {event.interval.vendorLabel} {dailyBrief(event.totals)}
                           </Link>
                         ),
                       )}
@@ -572,52 +903,102 @@ export function ReceiptCalendarView({
         </section>
       ) : null}
 
-      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-          <h2 className="font-semibold">Itemized</h2>
-          <span className="text-sm text-zinc-500">{itemRows.length} rows</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[840px] text-sm">
-            <thead className="bg-zinc-50 text-left text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
-              <tr>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Item</th>
-                <th className="px-4 py-3 font-medium">Receipt</th>
-                <th className="px-4 py-3 font-medium text-right">{mode === "bought" ? "Quantity" : "Amount"}</th>
-                <th className="px-4 py-3 font-medium text-right">{mode === "bought" ? "Price" : "Status"}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {itemRows.map((row) => (
-                <tr key={row.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
-                  <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">{formatDate(row.date)}</td>
-                  <td className="px-4 py-3">
-                    <Link href={`/receipts/${row.item.receiptId}`} className="font-medium hover:underline">
-                      {row.item.rawName}
-                    </Link>
-                    {row.log?.note ? <div className="mt-1 text-xs text-zinc-500">{row.log.note}</div> : null}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{row.item.receiptVendor ?? "Unknown"}</td>
-                  <td className="px-4 py-3 text-right">
-                    {row.log ? formatQty(row.log.amount, row.log.unit) : formatQty(row.item.quantity, row.item.unit)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {mode === "bought" ? formatMoney(row.item.price) || "—" : statusLabel(row.item.consumptionStatus)}
-                  </td>
-                </tr>
-              ))}
-              {itemRows.length === 0 ? (
+      {mode === "bought" ? (
+        <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+            <h2 className="font-semibold">Itemized</h2>
+            <span className="text-sm text-zinc-500">{itemRows.length} rows</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[840px] text-sm">
+              <thead className="bg-zinc-50 text-left text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
-                    No rows
-                  </td>
+                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">Item</th>
+                  <th className="px-4 py-3 font-medium">Receipt</th>
+                  <th className="px-4 py-3 font-medium text-right">Quantity</th>
+                  <th className="px-4 py-3 font-medium text-right">Price</th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {itemRows.map((row) => (
+                  <tr key={row.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
+                    <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">{formatDate(row.date)}</td>
+                    <td className="px-4 py-3">
+                      <Link href={`/receipts/${row.item.receiptId}`} className="font-medium hover:underline">
+                        {row.item.rawName}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{row.item.receiptVendor ?? "Unknown"}</td>
+                    <td className="px-4 py-3 text-right">{formatQty(row.item.quantity, row.item.unit)}</td>
+                    <td className="px-4 py-3 text-right">{formatMoney(row.item.price) || "-"}</td>
+                  </tr>
+                ))}
+                {itemRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
+                      No rows
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+            <h2 className="font-semibold">Repeat intervals</h2>
+            <span className="text-sm text-zinc-500">{intervalRows.length} rows</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[940px] text-sm">
+              <thead className="bg-zinc-50 text-left text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Start</th>
+                  <th className="px-4 py-3 font-medium">Vendor</th>
+                  <th className="px-4 py-3 font-medium">Receipt</th>
+                  <th className="px-4 py-3 font-medium text-right">Days</th>
+                  <th className="px-4 py-3 font-medium text-right">Daily estimate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {intervalRows.map((interval) => {
+                  const intervalActiveLine = activeLine(interval.daily);
+                  return (
+                    <tr key={interval.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
+                      <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                        {formatShortDate(interval.startDate)} - {formatShortDate(interval.endDate)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{interval.vendorLabel}</div>
+                        {interval.projected ? <div className="mt-1 text-xs text-zinc-500">Projected</div> : null}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                        <Link href={`/receipts/${interval.receipt.id}`} className="hover:underline">
+                          {interval.receipt.vendor ?? "Unknown"}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-right">{interval.days}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="font-medium">{dailyBrief(interval.daily) || "-"}</div>
+                        {intervalActiveLine ? <div className="mt-1 text-xs text-zinc-500">{intervalActiveLine}</div> : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {intervalRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
+                      No repeat intervals
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

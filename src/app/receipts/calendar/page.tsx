@@ -3,7 +3,6 @@ import { db, schema } from "@/db/client";
 import {
   ReceiptCalendarView,
   type CalendarItem,
-  type CalendarLog,
   type CalendarReceipt,
 } from "./ReceiptCalendarView";
 import { inferPurchasedDateFromText, normalizeReceiptDate } from "@/lib/receipts/dates";
@@ -18,7 +17,7 @@ function toIso(value: Date | string | null | undefined) {
 }
 
 async function getCalendarData() {
-  const [receipts, items, logs] = await Promise.all([
+  const [receipts, items] = await Promise.all([
     db
       .select({
         id: schema.receipts.id,
@@ -53,23 +52,14 @@ async function getCalendarData() {
         proteinG: schema.nutritionFacts.proteinG,
         carbsG: schema.nutritionFacts.carbsG,
         fatG: schema.nutritionFacts.fatG,
+        alcoholG: schema.nutritionFacts.alcoholG,
+        caffeineMg: schema.nutritionFacts.caffeineMg,
+        activeIngredientsJson: schema.nutritionFacts.activeIngredientsJson,
       })
       .from(schema.lineItems)
       .innerJoin(schema.receipts, eq(schema.receipts.id, schema.lineItems.receiptId))
       .leftJoin(schema.nutritionFacts, eq(schema.nutritionFacts.lineItemId, schema.lineItems.id))
       .orderBy(desc(schema.receipts.createdAt), asc(schema.lineItems.id)),
-    db
-      .select({
-        id: schema.consumptionLogs.id,
-        receiptId: schema.consumptionLogs.receiptId,
-        lineItemId: schema.consumptionLogs.lineItemId,
-        consumedAt: schema.consumptionLogs.consumedAt,
-        amount: schema.consumptionLogs.amount,
-        unit: schema.consumptionLogs.unit,
-        note: schema.consumptionLogs.note,
-      })
-      .from(schema.consumptionLogs)
-      .orderBy(desc(schema.consumptionLogs.consumedAt), desc(schema.consumptionLogs.id)),
   ]);
 
   return {
@@ -102,14 +92,16 @@ async function getCalendarData() {
         proteinG: item.proteinG,
         carbsG: item.carbsG,
         fatG: item.fatG,
+        alcoholG: item.alcoholG,
+        caffeineMg: item.caffeineMg,
+        activeIngredientsJson: item.activeIngredientsJson,
       }),
     ),
-    logs: logs satisfies CalendarLog[],
   };
 }
 
 export default async function ReceiptCalendarPage() {
   const data = await getCalendarData();
 
-  return <ReceiptCalendarView receipts={data.receipts} items={data.items} logs={data.logs} />;
+  return <ReceiptCalendarView receipts={data.receipts} items={data.items} />;
 }
