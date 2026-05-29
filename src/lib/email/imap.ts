@@ -1,7 +1,8 @@
 import { ImapFlow } from "imapflow";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { parseReceipt } from "@/lib/llm/parse";
+import { conciseParseError, isRateLimitError } from "@/lib/llm/errors";
 import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
@@ -39,8 +40,12 @@ export type EmailSyncResult = {
   attachments: number;
   parsed: number;
   skipped: number;
+  skippedNoCandidates: number;
+  skippedNotReceipt: number;
+  skippedPreviouslySeen: number;
   failed: number;
   duplicates: number;
+  rateLimited: boolean;
   query: string;
   merchant: string;
   days: number;
@@ -95,8 +100,12 @@ function emptyResult(connection: ImapAccountConnection, merchant: GmailMerchantP
     attachments: 0,
     parsed: 0,
     skipped: 0,
+    skippedNoCandidates: 0,
+    skippedNotReceipt: 0,
+    skippedPreviouslySeen: 0,
     failed: 0,
     duplicates: 0,
+    rateLimited: false,
     query: `${connection.mailbox} since ${dateDaysAgo(days).toISOString().slice(0, 10)}`,
     merchant,
     days,
@@ -113,6 +122,26 @@ function matchesMerchant(text: string | undefined, merchant: GmailMerchantPreset
 
 async function logEmailIngest(input: typeof schema.emailIngestLog.$inferInsert) {
   await db.insert(schema.emailIngestLog).values(input);
+}
+
+async function findPriorSkippedCandidate(messageId: string) {
+  const [prior] = await db
+    .select({
+      status: schema.emailIngestLog.status,
+      receiptId: schema.emailIngestLog.receiptId,
+      errorText: schema.emailIngestLog.errorText,
+    })
+    .from(schema.emailIngestLog)
+    .where(eq(schema.emailIngestLog.messageId, messageId))
+    .orderBy(desc(schema.emailIngestLog.id))
+    .limit(1);
+
+  if (prior?.status !== "skipped_not_receipt") return null;
+  const errorText = prior.errorText ?? "";
+  const reusable =
+    prior.receiptId != null ||
+    /did not look like a receipt|No readable|No matching|Duplicate/i.test(errorText);
+  return reusable ? prior : null;
 }
 
 export async function processImapAccount(
@@ -160,6 +189,7 @@ export async function processImapAccount(
         try {
           if (!message.source) {
             result.skipped += 1;
+            result.skippedNoCandidates += 1;
             await logEmailIngest({
               emailAccountId: connection.accountId,
               messageId: baseMessageId,
@@ -178,6 +208,7 @@ export async function processImapAccount(
 
           if (candidates.length === 0) {
             result.skipped += 1;
+            result.skippedNoCandidates += 1;
             await logEmailIngest({
               emailAccountId: connection.accountId,
               fromAddress: parsedEmail.fromAddress,
@@ -212,9 +243,18 @@ export async function processImapAccount(
               continue;
             }
 
+            const priorSkipped = await findPriorSkippedCandidate(candidateMessageId);
+            if (priorSkipped) {
+              result.skipped += 1;
+              if (priorSkipped.receiptId) result.duplicates += 1;
+              else result.skippedPreviouslySeen += 1;
+              continue;
+            }
+
             const parsed = await parseReceipt(candidate.input);
             if (!parsed.is_receipt) {
               result.skipped += 1;
+              result.skippedNotReceipt += 1;
               await logEmailIngest({
                 emailAccountId: connection.accountId,
                 fromAddress: parsedEmail.fromAddress,
@@ -298,14 +338,16 @@ export async function processImapAccount(
           }
         } catch (error) {
           result.failed += 1;
+          if (isRateLimitError(error)) result.rateLimited = true;
           await logEmailIngest({
             emailAccountId: connection.accountId,
             messageId: baseMessageId,
             fromAddress: message.envelope?.from?.map((from) => from.address).filter(Boolean).join(", ") ?? null,
             subject: message.envelope?.subject ?? null,
             status: "failed",
-            errorText: error instanceof Error ? error.message : String(error),
+            errorText: conciseParseError(error),
           });
+          if (isRateLimitError(error)) break;
         }
       }
     } finally {

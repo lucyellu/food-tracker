@@ -19,8 +19,12 @@ export type MultiEmailSyncResult = Omit<
       | "attachments"
       | "parsed"
       | "skipped"
+      | "skippedNoCandidates"
+      | "skippedNotReceipt"
+      | "skippedPreviouslySeen"
       | "failed"
       | "duplicates"
+      | "rateLimited"
       | "query"
     > & { error?: string }
   >;
@@ -33,8 +37,12 @@ function emptyMultiResult(merchant: GmailMerchantPresetId, days: number): MultiE
     attachments: 0,
     parsed: 0,
     skipped: 0,
+    skippedNoCandidates: 0,
+    skippedNotReceipt: 0,
+    skippedPreviouslySeen: 0,
     failed: 0,
     duplicates: 0,
+    rateLimited: false,
     query: "all enabled inboxes",
     merchant,
     days,
@@ -49,8 +57,12 @@ function addAccountResult(target: MultiEmailSyncResult, source: EmailSyncResult)
   target.attachments += source.attachments;
   target.parsed += source.parsed;
   target.skipped += source.skipped;
+  target.skippedNoCandidates += source.skippedNoCandidates;
+  target.skippedNotReceipt += source.skippedNotReceipt;
+  target.skippedPreviouslySeen += source.skippedPreviouslySeen;
   target.failed += source.failed;
   target.duplicates += source.duplicates;
+  target.rateLimited ||= source.rateLimited;
   target.receipts.push(...source.receipts);
   target.accounts.push({
     accountId: source.accountId,
@@ -61,8 +73,12 @@ function addAccountResult(target: MultiEmailSyncResult, source: EmailSyncResult)
     attachments: source.attachments,
     parsed: source.parsed,
     skipped: source.skipped,
+    skippedNoCandidates: source.skippedNoCandidates,
+    skippedNotReceipt: source.skippedNotReceipt,
+    skippedPreviouslySeen: source.skippedPreviouslySeen,
     failed: source.failed,
     duplicates: source.duplicates,
+    rateLimited: source.rateLimited,
     query: source.query,
   });
 }
@@ -103,6 +119,7 @@ export async function processEmailInboxes({
             { maxResults, merchant, days },
           ),
         );
+        if (result.rateLimited) break;
       } else if (account.provider === "yahoo_imap") {
         addAccountResult(
           result,
@@ -118,6 +135,7 @@ export async function processEmailInboxes({
             { maxResults, merchant, days },
           ),
         );
+        if (result.rateLimited) break;
       }
     } catch (error) {
       result.failed += 1;
@@ -130,8 +148,12 @@ export async function processEmailInboxes({
         attachments: 0,
         parsed: 0,
         skipped: 0,
+        skippedNoCandidates: 0,
+        skippedNotReceipt: 0,
+        skippedPreviouslySeen: 0,
         failed: 1,
         duplicates: 0,
+        rateLimited: false,
         query: account.query ?? account.mailbox,
         error: error instanceof Error ? error.message : String(error),
       });

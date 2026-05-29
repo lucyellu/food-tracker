@@ -19,6 +19,19 @@ type GmailSyncError = {
   error?: string;
   needsReconnect?: boolean;
 };
+type GmailSyncResponse = {
+  scanned?: number;
+  candidates?: number;
+  attachments?: number;
+  parsed?: number;
+  duplicates?: number;
+  skipped?: number;
+  skippedNoCandidates?: number;
+  skippedNotReceipt?: number;
+  skippedPreviouslySeen?: number;
+  failed?: number;
+  rateLimited?: boolean;
+};
 type GmailMerchant = "all" | "tnt" | "pricesmart" | "ubereats";
 type PhotosStatus = {
   configured: boolean;
@@ -54,6 +67,21 @@ const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
 ];
 
 const GMAIL_DAY_WINDOWS = [14, 30, 90, 365] as const;
+
+function gmailSyncMessage(data: GmailSyncResponse) {
+  const skipDetails = [
+    data.skippedPreviouslySeen ? `${data.skippedPreviouslySeen} already ruled out` : null,
+    data.skippedNotReceipt ? `${data.skippedNotReceipt} new non-receipts` : null,
+    data.skippedNoCandidates ? `${data.skippedNoCandidates} without readable receipt content` : null,
+  ].filter(Boolean);
+  const details = skipDetails.length > 0 ? ` (${skipDetails.join(", ")})` : "";
+  const rateLimit = data.rateLimited ? " Stopped early because Gemini quota/rate limit was hit." : "";
+  return `Scanned ${data.scanned ?? 0} emails, checked ${data.candidates ?? 0} bodies/attachments (${
+    data.attachments ?? 0
+  } attachments), parsed ${data.parsed ?? 0}, duplicates ${data.duplicates ?? 0}, skipped ${
+    data.skipped ?? 0
+  }${details}, failed ${data.failed ?? 0}.${rateLimit}`;
+}
 
 export default function Home() {
   const router = useRouter();
@@ -135,9 +163,7 @@ export default function Home() {
         );
         return;
       }
-      setGmailMessage(
-        `Scanned ${data.scanned} emails, checked ${data.candidates ?? data.scanned} bodies/attachments (${data.attachments ?? 0} attachments), parsed ${data.parsed}, duplicates ${data.duplicates ?? 0}, skipped ${data.skipped}, failed ${data.failed}.`,
-      );
+      setGmailMessage(gmailSyncMessage(data as GmailSyncResponse));
     } catch (e) {
       setGmailMessage(e instanceof Error ? e.message : String(e));
     } finally {

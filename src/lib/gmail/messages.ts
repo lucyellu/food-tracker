@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { simpleParser } from "mailparser";
 import { parse as parseHtml } from "node-html-parser";
 import { db, schema } from "@/db/client";
 import { parseReceipt, type ParseInput } from "@/lib/llm/parse";
+import { conciseParseError, isRateLimitError } from "@/lib/llm/errors";
 import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
@@ -72,8 +73,12 @@ export type GmailSyncResult = {
   attachments: number;
   parsed: number;
   skipped: number;
+  skippedNoCandidates: number;
+  skippedNotReceipt: number;
+  skippedPreviouslySeen: number;
   failed: number;
   duplicates: number;
+  rateLimited: boolean;
   query: string;
   merchant: string;
   days: number;
@@ -342,6 +347,26 @@ async function logEmailIngest(input: typeof schema.emailIngestLog.$inferInsert) 
   await db.insert(schema.emailIngestLog).values(input);
 }
 
+async function findPriorSkippedCandidate(messageId: string) {
+  const [prior] = await db
+    .select({
+      status: schema.emailIngestLog.status,
+      receiptId: schema.emailIngestLog.receiptId,
+      errorText: schema.emailIngestLog.errorText,
+    })
+    .from(schema.emailIngestLog)
+    .where(eq(schema.emailIngestLog.messageId, messageId))
+    .orderBy(desc(schema.emailIngestLog.id))
+    .limit(1);
+
+  if (prior?.status !== "skipped_not_receipt") return null;
+  const errorText = prior.errorText ?? "";
+  const reusable =
+    prior.receiptId != null ||
+    /did not look like a receipt|No readable|No matching|Duplicate/i.test(errorText);
+  return reusable ? prior : null;
+}
+
 export async function processGmailInbox(maxResults = 10): Promise<GmailSyncResult> {
   return processGmailMerchantInbox({ maxResults });
 }
@@ -417,8 +442,12 @@ export async function processGmailAccount(
     attachments: 0,
     parsed: 0,
     skipped: 0,
+    skippedNoCandidates: 0,
+    skippedNotReceipt: 0,
+    skippedPreviouslySeen: 0,
     failed: 0,
     duplicates: 0,
+    rateLimited: false,
     query: query || connection.query || DEFAULT_QUERY,
     merchant: preset.id,
     days,
@@ -438,6 +467,7 @@ export async function processGmailAccount(
       result.attachments += candidates.filter((candidate) => candidate.id !== "body").length;
       if (candidates.length === 0) {
         result.skipped += 1;
+        result.skippedNoCandidates += 1;
         await logEmailIngest({
           emailAccountId: connection.accountId,
           fromAddress: getHeader(message, "From"),
@@ -473,9 +503,18 @@ export async function processGmailAccount(
           continue;
         }
 
+        const priorSkipped = await findPriorSkippedCandidate(candidateMessageId);
+        if (priorSkipped) {
+          result.skipped += 1;
+          if (priorSkipped.receiptId) result.duplicates += 1;
+          else result.skippedPreviouslySeen += 1;
+          continue;
+        }
+
         const parsed = await parseReceipt(candidate.input);
         if (!parsed.is_receipt) {
           result.skipped += 1;
+          result.skippedNotReceipt += 1;
           await logEmailIngest({
             emailAccountId: connection.accountId,
             fromAddress: getHeader(message, "From"),
@@ -559,14 +598,16 @@ export async function processGmailAccount(
       }
     } catch (e) {
       result.failed += 1;
+      if (isRateLimitError(e)) result.rateLimited = true;
       await logEmailIngest({
         emailAccountId: connection.accountId,
         fromAddress: message ? getHeader(message, "From") : null,
         subject: message ? getHeader(message, "Subject") : null,
         messageId: scopedGmailSourceId(connection, item.id),
         status: "failed",
-        errorText: e instanceof Error ? e.message : String(e),
+        errorText: conciseParseError(e),
       });
+      if (isRateLimitError(e)) break;
     }
   }
 

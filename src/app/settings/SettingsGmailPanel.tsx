@@ -33,8 +33,12 @@ type SyncResponse = {
   parsed?: number;
   duplicates?: number;
   skipped?: number;
+  skippedNoCandidates?: number;
+  skippedNotReceipt?: number;
+  skippedPreviouslySeen?: number;
   failed?: number;
-  accounts?: Array<{ accountEmail: string | null; provider: string; error?: string }>;
+  rateLimited?: boolean;
+  accounts?: Array<{ accountEmail: string | null; provider: string; error?: string; rateLimited?: boolean }>;
   error?: string;
   needsReconnect?: boolean;
 };
@@ -56,9 +60,18 @@ function syncMessage(data: SyncResponse) {
     accountErrors.length > 0
       ? ` ${accountErrors.length} inbox${accountErrors.length === 1 ? "" : "es"} need attention.`
       : "";
-  return `Scanned ${data.scanned ?? 0}, parsed ${data.parsed ?? 0}, duplicates ${
-    data.duplicates ?? 0
-  }, skipped ${data.skipped ?? 0}, failed ${data.failed ?? 0}.${errorSuffix}`;
+  const skipDetails = [
+    data.skippedPreviouslySeen ? `${data.skippedPreviouslySeen} already ruled out` : null,
+    data.skippedNotReceipt ? `${data.skippedNotReceipt} new non-receipts` : null,
+    data.skippedNoCandidates ? `${data.skippedNoCandidates} without readable receipt content` : null,
+  ].filter(Boolean);
+  const details = skipDetails.length > 0 ? ` (${skipDetails.join(", ")})` : "";
+  const rateLimit = data.rateLimited ? " Stopped early because Gemini quota/rate limit was hit." : "";
+  return `Scanned ${data.scanned ?? 0}, checked ${data.candidates ?? 0} bodies/attachments (${
+    data.attachments ?? 0
+  } attachments), parsed ${data.parsed ?? 0}, duplicates ${data.duplicates ?? 0}, skipped ${
+    data.skipped ?? 0
+  }${details}, failed ${data.failed ?? 0}.${rateLimit}${errorSuffix}`;
 }
 
 export function SettingsGmailPanel() {
