@@ -1,4 +1,4 @@
-export type GmailMerchantPresetId = "all" | "tnt" | "pricesmart" | "ubereats";
+export type GmailMerchantPresetId = "all" | "tnt" | "costco" | "pricesmart" | "ubereats" | "dutchlove";
 
 export type GmailMerchantPreset = {
   id: GmailMerchantPresetId;
@@ -11,9 +11,9 @@ export type GmailMerchantPreset = {
 export const GMAIL_MERCHANT_PRESETS: GmailMerchantPreset[] = [
   {
     id: "all",
-    label: "All receipt-like emails",
-    query: "(receipt OR order OR invoice)",
-    vendorPatterns: [/receipt|order|invoice/i],
+    label: "All purchase-like emails",
+    query: "(receipt OR order OR invoice OR purchase OR confirmation OR shipped OR delivered)",
+    vendorPatterns: [/receipt|order|invoice|purchase|confirmation|shipped|delivered/i],
     orderPatterns: [],
   },
   {
@@ -22,6 +22,17 @@ export const GMAIL_MERCHANT_PRESETS: GmailMerchantPreset[] = [
     query: '(from:tntsupermarket.com OR from:customer.service@tntsupermarket.com OR "T&T Shop Online" OR "T&T Supermarket")',
     vendorPatterns: [/t&t/i, /tntsupermarket/i],
     orderPatterns: [/ORDER\s+#\s*([A-Z0-9-]+)/i, /Order\s+Number\s*:?\s*([A-Z0-9-]+)/i],
+  },
+  {
+    id: "costco",
+    label: "Costco",
+    query: '(from:costco.ca OR from:costco.com OR "Costco" OR "Costco Wholesale")',
+    vendorPatterns: [/costco/i],
+    orderPatterns: [
+      /Order\s*#\s*:?\s*([A-Z0-9-]+)/i,
+      /Order\s+Number\s*:?\s*([A-Z0-9-]+)/i,
+      /Receipt\s*#\s*:?\s*([A-Z0-9-]+)/i,
+    ],
   },
   {
     id: "pricesmart",
@@ -43,6 +54,17 @@ export const GMAIL_MERCHANT_PRESETS: GmailMerchantPreset[] = [
       /Order\s*#\s*([A-Z0-9-]+)/i,
       /Order\s+number\s*:?\s*([A-Z0-9-]+)/i,
       /Receipt\s*#\s*([A-Z0-9-]+)/i,
+    ],
+  },
+  {
+    id: "dutchlove",
+    label: "Dutch Love",
+    query: '("Dutch Love" OR from:dutchlove.ca OR from:dutch.love)',
+    vendorPatterns: [/dutch\s*love/i],
+    orderPatterns: [
+      /Order\s*#\s*:?\s*([A-Z0-9-]+)/i,
+      /Order\s+Number\s*:?\s*([A-Z0-9-]+)/i,
+      /Receipt\s*#\s*:?\s*([A-Z0-9-]+)/i,
     ],
   },
 ];

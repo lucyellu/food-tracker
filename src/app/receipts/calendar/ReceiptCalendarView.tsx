@@ -415,6 +415,7 @@ function vendorBucket(vendor: string | null) {
   const raw = vendor?.trim() || "Unknown";
   const lower = raw.toLowerCase();
   if (/\b(?:t&t|tnt|tntsupermarket)\b/i.test(raw)) return { key: "tnt", label: "T&T Supermarket" };
+  if (/costco/i.test(raw)) return { key: "costco", label: "Costco" };
   if (/price\s*smart|pricesmart/i.test(raw)) return { key: "pricesmart", label: "PriceSmart Foods" };
   if (/uber\s*eats|\bubereats\b/i.test(raw)) return { key: "ubereats", label: "Uber Eats" };
   if (/dutch\s*love/i.test(raw)) return { key: "dutch-love", label: "Dutch Love" };

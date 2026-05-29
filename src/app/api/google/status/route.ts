@@ -19,6 +19,11 @@ export async function GET() {
             ? `${enabledAccounts.length} inboxes`
             : null,
       query: enabledAccounts.map((account) => account.mailbox).join(", ") || null,
+      parseEngine: {
+        proceduralVendors: ["T&T", "PriceSmart", "Uber Eats"],
+        deepSeekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),
+        preferDeepSeek: process.env.PREFER_DEEPSEEK === "true",
+      },
       accounts,
     });
   } catch (e) {
@@ -29,6 +34,11 @@ export async function GET() {
         connected: false,
         email: null,
         query: null,
+        parseEngine: {
+          proceduralVendors: ["T&T", "PriceSmart", "Uber Eats"],
+          deepSeekConfigured: Boolean(process.env.DEEPSEEK_API_KEY),
+          preferDeepSeek: process.env.PREFER_DEEPSEEK === "true",
+        },
         accounts: [],
         error: msg.includes("Failed query")
           ? "Could not read email settings. Check DATABASE_URL and run npm run db:push."

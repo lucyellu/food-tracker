@@ -35,7 +35,7 @@ type GmailSyncResponse = {
   pageTokens?: Record<string, string>;
   resultSizeEstimate?: number | null;
 };
-type GmailMerchant = "all" | "tnt" | "pricesmart" | "ubereats";
+type GmailMerchant = "all" | "tnt" | "costco" | "pricesmart" | "ubereats" | "dutchlove";
 type GmailScanCursor = {
   key: string;
   merchant: GmailMerchant;
@@ -70,12 +70,17 @@ type PhotosImportResponse = {
 const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
   { id: "all", label: "All" },
   { id: "tnt", label: "T&T" },
+  { id: "costco", label: "Costco" },
   { id: "pricesmart", label: "PriceSmart" },
   { id: "ubereats", label: "Uber Eats" },
+  { id: "dutchlove", label: "Dutch Love" },
 ];
 
 const GMAIL_DAY_WINDOWS = [14, 30, 90, 365, 730, 3650] as const;
 const GMAIL_BATCH_SIZE = 50;
+const GMAIL_SCAN_CURSOR_STORAGE_KEY = "food-tracker:email-scan-cursors";
+const GMAIL_SCAN_FILTER_STORAGE_KEY = "food-tracker:email-scan-filter";
+const GMAIL_MERCHANT_IDS = new Set(GMAIL_MERCHANTS.map((option) => option.id));
 
 function gmailScanKey(merchant: GmailMerchant, days: number) {
   return `${merchant}:${days}:all`;
@@ -86,6 +91,53 @@ function dayWindowLabel(days: number) {
   if (days === 730) return "2 years";
   if (days === 3650) return "10 years";
   return `${days} days`;
+}
+
+function isGmailMerchant(value: unknown): value is GmailMerchant {
+  return typeof value === "string" && GMAIL_MERCHANT_IDS.has(value as GmailMerchant);
+}
+
+function readJsonObject(key: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSavedGmailCursor(key: string): GmailScanCursor | null {
+  const saved = readJsonObject(GMAIL_SCAN_CURSOR_STORAGE_KEY);
+  const pageTokens = saved?.[key];
+  if (!pageTokens || typeof pageTokens !== "object") return null;
+  const merchant = key.split(":")[0];
+  return isGmailMerchant(merchant) ? { key, merchant, pageTokens: pageTokens as Record<string, string> } : null;
+}
+
+function saveGmailCursor(cursor: GmailScanCursor) {
+  if (typeof window === "undefined") return;
+  const saved = readJsonObject(GMAIL_SCAN_CURSOR_STORAGE_KEY) ?? {};
+  saved[cursor.key] = cursor.pageTokens;
+  window.localStorage.setItem(GMAIL_SCAN_CURSOR_STORAGE_KEY, JSON.stringify(saved));
+}
+
+function clearSavedGmailCursor(key: string) {
+  if (typeof window === "undefined") return;
+  const saved = readJsonObject(GMAIL_SCAN_CURSOR_STORAGE_KEY) ?? {};
+  delete saved[key];
+  window.localStorage.setItem(GMAIL_SCAN_CURSOR_STORAGE_KEY, JSON.stringify(saved));
+}
+
+function readSavedGmailFilter() {
+  const saved = readJsonObject(GMAIL_SCAN_FILTER_STORAGE_KEY);
+  if (!saved || !isGmailMerchant(saved.merchant) || typeof saved.days !== "number") return null;
+  return { merchant: saved.merchant, days: saved.days };
+}
+
+function saveGmailFilter(merchant: GmailMerchant, days: number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(GMAIL_SCAN_FILTER_STORAGE_KEY, JSON.stringify({ merchant, days }));
 }
 
 function gmailSyncMessage(data: GmailSyncResponse) {
@@ -155,6 +207,14 @@ export default function Home() {
         : null;
 
     const timeoutId = window.setTimeout(() => {
+      const savedFilter = readSavedGmailFilter();
+      if (savedFilter) {
+        setGmailMerchant(savedFilter.merchant);
+        setGmailDays(savedFilter.days);
+        setGmailScanCursor(readSavedGmailCursor(gmailScanKey(savedFilter.merchant, savedFilter.days)));
+      } else {
+        setGmailScanCursor(readSavedGmailCursor(gmailScanKey("all", 90)));
+      }
       if (nextGmailMessage) setGmailMessage(nextGmailMessage);
       if (nextPhotosMessage) setPhotosMessage(nextPhotosMessage);
       void loadGmailStatus();
@@ -169,6 +229,7 @@ export default function Home() {
   async function syncGmail(merchant = gmailMerchant, continueOlder = false) {
     setGmailLoading(true);
     setGmailMessage(null);
+    saveGmailFilter(merchant, gmailDays);
     const key = gmailScanKey(merchant, gmailDays);
     const pageTokens = continueOlder && gmailScanCursor?.key === key ? gmailScanCursor.pageTokens : undefined;
     try {
@@ -189,11 +250,13 @@ export default function Home() {
       }
       const syncData = data as GmailSyncResponse;
       setGmailMessage(`${continueOlder ? "Older batch: " : ""}${gmailSyncMessage(syncData)}`);
-      setGmailScanCursor(
+      const nextCursor =
         syncData.hasMore && syncData.pageTokens && Object.keys(syncData.pageTokens).length > 0
           ? { key, merchant, pageTokens: syncData.pageTokens }
-          : null,
-      );
+          : null;
+      if (nextCursor) saveGmailCursor(nextCursor);
+      else clearSavedGmailCursor(key);
+      setGmailScanCursor(nextCursor);
     } catch (e) {
       setGmailMessage(e instanceof Error ? e.message : String(e));
     } finally {
@@ -405,7 +468,8 @@ export default function Home() {
                   type="button"
                   onClick={() => {
                     setGmailMerchant(merchant.id);
-                    setGmailScanCursor(null);
+                    saveGmailFilter(merchant.id, gmailDays);
+                    setGmailScanCursor(readSavedGmailCursor(gmailScanKey(merchant.id, gmailDays)));
                   }}
                   disabled={gmailLoading}
                   className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
@@ -426,7 +490,8 @@ export default function Home() {
                   type="button"
                   onClick={() => {
                     setGmailDays(days);
-                    setGmailScanCursor(null);
+                    saveGmailFilter(gmailMerchant, days);
+                    setGmailScanCursor(readSavedGmailCursor(gmailScanKey(gmailMerchant, days)));
                   }}
                   disabled={gmailLoading}
                   className={`rounded-md border px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
@@ -446,6 +511,7 @@ export default function Home() {
                   type="button"
                   onClick={() => {
                     setGmailMerchant(merchant.id);
+                    saveGmailFilter(merchant.id, gmailDays);
                     void syncGmail(merchant.id);
                   }}
                   disabled={gmailLoading}
