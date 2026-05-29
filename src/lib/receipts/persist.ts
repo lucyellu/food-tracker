@@ -1,5 +1,9 @@
 import { db, schema } from "@/db/client";
 import type { ParsedReceipt } from "@/lib/llm/schema";
+import {
+  getOrCreateCatalogProductForLineItem,
+  productCatalogKey,
+} from "@/lib/products/catalog";
 import { cannabisNutritionForParsedItem } from "@/lib/receipts/cannabis";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 
@@ -35,15 +39,39 @@ export async function persistParsedReceipt({
 
   if (parsed.items.length > 0) {
     const cannabisNutrition = parsed.items.map(cannabisNutritionForParsedItem);
-    const itemRows: (typeof schema.lineItems.$inferInsert)[] = parsed.items.map((it, index) => ({
-      receiptId: receipt.id,
-      rawName: it.raw_name,
-      quantity: it.quantity,
-      unit: it.unit,
-      price: it.price,
-      nutritionStatus: cannabisNutrition[index] ? "manual" : "pending",
-      productSource: cannabisNutrition[index] ? "Cannabis label" : null,
-    }));
+    const productCache = new Map<
+      string,
+      ReturnType<typeof getOrCreateCatalogProductForLineItem>
+    >();
+    const products = await Promise.all(
+      parsed.items.map((it, index) => {
+        const key = productCatalogKey({
+          vendor: parsed.vendor,
+          rawName: it.raw_name,
+          retailerSku: null,
+        });
+        if (key && productCache.has(key)) return productCache.get(key)!;
+        const productRequest = getOrCreateCatalogProductForLineItem({
+          vendor: parsed.vendor,
+          rawName: it.raw_name,
+          productSource: cannabisNutrition[index] ? "Controlled label" : null,
+        });
+        if (key) productCache.set(key, productRequest);
+        return productRequest;
+      }),
+    );
+    const itemRows: (typeof schema.lineItems.$inferInsert)[] = parsed.items.map((it, index) => {
+      const product = products[index];
+      return {
+        receiptId: receipt.id,
+        productId: product?.id ?? null,
+        rawName: it.raw_name,
+        quantity: it.quantity,
+        unit: it.unit,
+        price: it.price,
+        nutritionStatus: cannabisNutrition[index] ? "manual" : "pending",
+      };
+    });
     const insertedItems = await db.insert(schema.lineItems).values(itemRows).returning();
 
     const nutritionRows: (typeof schema.nutritionFacts.$inferInsert)[] = [];

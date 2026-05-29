@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { mergeCatalogFieldsIntoLineItem } from "@/lib/products/catalog";
 import { EnrichNutritionButton } from "./EnrichNutritionButton";
 import { EnrichProductsButton } from "./EnrichProductsButton";
 import {
@@ -19,13 +20,18 @@ async function getReceipt(id: number) {
   const rows = await db
     .select({
       item: schema.lineItems,
+      product: schema.productCatalog,
       nutrition: schema.nutritionFacts,
     })
     .from(schema.lineItems)
+    .leftJoin(schema.productCatalog, eq(schema.productCatalog.id, schema.lineItems.productId))
     .leftJoin(schema.nutritionFacts, eq(schema.nutritionFacts.lineItemId, schema.lineItems.id))
     .where(eq(schema.lineItems.receiptId, id))
     .orderBy(asc(schema.lineItems.id));
-  const items = rows.map((row) => ({ ...row.item, nutrition: row.nutrition }));
+  const items = rows.map((row) => ({
+    ...mergeCatalogFieldsIntoLineItem(row.item, row.product),
+    nutrition: row.nutrition,
+  }));
   const logs = await db
     .select()
     .from(schema.consumptionLogs)

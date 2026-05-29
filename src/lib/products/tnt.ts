@@ -1,5 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import {
+  linkLineItemToCatalog,
+  syncProductCatalogMetadata,
+} from "@/lib/products/catalog";
 
 const TNT_GRAPHQL_URL = "https://www.tntsupermarket.com/graphql";
 const CANNABIS_PRODUCT_RE =
@@ -120,19 +124,28 @@ export async function enrichProductsForReceipt(receiptId: number) {
   const result = { total: items.length, linked: 0, fallbackLinks: 0, failed: 0, skipped: 0 };
 
   for (const item of items) {
+    const catalogProduct = await linkLineItemToCatalog(item, receipt?.vendor);
+    const productId = catalogProduct?.id ?? item.productId;
     const sku = item.retailerSku;
     const query = cleanProductQuery(item);
 
     if (isDutchLoveProduct(item, receipt?.vendor)) {
-      await db
-        .update(schema.lineItems)
-        .set({
-          productSource: "Dutch Love",
-          productUrl: dutchLoveSearchUrl(query),
-        })
-        .where(eq(schema.lineItems.id, item.id));
+      const productUrl = dutchLoveSearchUrl(query);
+      await syncProductCatalogMetadata(productId, {
+        productSource: "Dutch Love",
+        productUrl,
+      });
+      if (!productId) {
+        await db
+          .update(schema.lineItems)
+          .set({
+            productSource: "Dutch Love",
+            productUrl,
+          })
+          .where(eq(schema.lineItems.id, item.id));
+      }
 
-      if (item.productImageUrl) result.linked += 1;
+      if (catalogProduct?.productImageUrl ?? item.productImageUrl) result.linked += 1;
       else result.fallbackLinks += 1;
       continue;
     }
@@ -148,25 +161,39 @@ export async function enrichProductsForReceipt(receiptId: number) {
       const url = tntProductUrl(product?.url_key) ?? tntSearchUrl(query);
       const imageUrl = product?.small_image?.url ?? product?.image?.url ?? product?.thumbnail?.url ?? null;
 
-      await db
-        .update(schema.lineItems)
-        .set({
-          productSource: "T&T",
-          productUrl: url,
-          productImageUrl: imageUrl,
-        })
-        .where(eq(schema.lineItems.id, item.id));
+      await syncProductCatalogMetadata(productId, {
+        productSource: "T&T",
+        productUrl: url,
+        productImageUrl: imageUrl,
+      });
+      if (!productId) {
+        await db
+          .update(schema.lineItems)
+          .set({
+            productSource: "T&T",
+            productUrl: url,
+            productImageUrl: imageUrl,
+          })
+          .where(eq(schema.lineItems.id, item.id));
+      }
 
       if (product) result.linked += 1;
       else result.fallbackLinks += 1;
     } catch {
-      await db
-        .update(schema.lineItems)
-        .set({
-          productSource: "T&T",
-          productUrl: tntSearchUrl(query),
-        })
-        .where(eq(schema.lineItems.id, item.id));
+      const productUrl = tntSearchUrl(query);
+      await syncProductCatalogMetadata(productId, {
+        productSource: "T&T",
+        productUrl,
+      });
+      if (!productId) {
+        await db
+          .update(schema.lineItems)
+          .set({
+            productSource: "T&T",
+            productUrl,
+          })
+          .where(eq(schema.lineItems.id, item.id));
+      }
       result.failed += 1;
     }
   }

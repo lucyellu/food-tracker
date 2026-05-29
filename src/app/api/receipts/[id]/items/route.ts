@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { getOrCreateCatalogProductForLineItem } from "@/lib/products/catalog";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       : new Date().toISOString().slice(0, 16);
   if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
 
+  const receipt = await db.query.receipts.findFirst({
+    where: eq(schema.receipts.id, receiptId),
+  });
+  if (!receipt) return NextResponse.json({ error: "Receipt not found" }, { status: 404 });
+
   const active = {
     caffeineMg: finiteOrNull(body.caffeineMg),
     alcoholG: finiteOrNull(body.alcoholG),
@@ -63,10 +69,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "At least one tracked amount is required" }, { status: 400 });
   }
 
+  const product = await getOrCreateCatalogProductForLineItem({
+    vendor: receipt.vendor ?? "manual",
+    rawName: name,
+    normalizedName: name,
+    productSource: "Manual",
+  });
+
   const [item] = await db
     .insert(schema.lineItems)
     .values({
       receiptId,
+      productId: product?.id ?? null,
       rawName: name,
       normalizedName: name,
       quantity: 1,

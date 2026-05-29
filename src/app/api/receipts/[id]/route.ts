@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { mergeCatalogFieldsIntoLineItem } from "@/lib/products/catalog";
 
 export const runtime = "nodejs";
 
@@ -16,10 +17,15 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   });
   if (!receipt) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const items = await db
-    .select()
+  const rows = await db
+    .select({
+      item: schema.lineItems,
+      product: schema.productCatalog,
+    })
     .from(schema.lineItems)
+    .leftJoin(schema.productCatalog, eq(schema.productCatalog.id, schema.lineItems.productId))
     .where(eq(schema.lineItems.receiptId, receiptId));
+  const items = rows.map((row) => mergeCatalogFieldsIntoLineItem(row.item, row.product));
 
   return NextResponse.json({ receipt, items });
 }

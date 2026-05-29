@@ -38,6 +38,33 @@ export const receipts = pgTable(
   ],
 );
 
+export const productCatalog = pgTable(
+  "product_catalog",
+  {
+    id: serial("id").primaryKey(),
+    productKey: text("product_key").notNull(),
+    displayName: text("display_name").notNull(),
+    normalizedName: text("normalized_name"),
+    brand: text("brand"),
+    retailerSku: text("retailer_sku"),
+    productSource: text("product_source"),
+    productUrl: text("product_url"),
+    productImageUrl: text("product_image_url"),
+    fdcId: integer("fdc_id"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_catalog_product_key_unique").on(t.productKey),
+    index("product_catalog_display_name_idx").on(t.displayName),
+    index("product_catalog_retailer_sku_idx").on(t.retailerSku),
+  ],
+);
+
 export const lineItems = pgTable(
   "line_items",
   {
@@ -45,6 +72,9 @@ export const lineItems = pgTable(
     receiptId: integer("receipt_id")
       .notNull()
       .references(() => receipts.id, { onDelete: "cascade" }),
+    productId: integer("product_id").references(() => productCatalog.id, {
+      onDelete: "set null",
+    }),
     rawName: text("raw_name").notNull(),
     normalizedName: text("normalized_name"),
     brand: text("brand"),
@@ -68,7 +98,10 @@ export const lineItems = pgTable(
       .notNull()
       .default("pending"),
   },
-  (t) => [index("line_items_receipt_id_idx").on(t.receiptId)],
+  (t) => [
+    index("line_items_receipt_id_idx").on(t.receiptId),
+    index("line_items_product_id_idx").on(t.productId),
+  ],
 );
 
 export const nutritionFacts = pgTable("nutrition_facts", {
@@ -208,6 +241,8 @@ export const usdaCache = pgTable("usda_cache", {
 
 export type Receipt = typeof receipts.$inferSelect;
 export type NewReceipt = typeof receipts.$inferInsert;
+export type ProductCatalogItem = typeof productCatalog.$inferSelect;
+export type NewProductCatalogItem = typeof productCatalog.$inferInsert;
 export type LineItem = typeof lineItems.$inferSelect;
 export type NewLineItem = typeof lineItems.$inferInsert;
 export type NutritionFact = typeof nutritionFacts.$inferSelect;

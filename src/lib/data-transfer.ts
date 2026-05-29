@@ -1,9 +1,10 @@
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 
-export const DATA_EXPORT_VERSION = 1;
+export const DATA_EXPORT_VERSION = 2;
 
 type ReceiptRow = typeof schema.receipts.$inferSelect;
+type ProductRow = typeof schema.productCatalog.$inferSelect;
 type LineItemRow = typeof schema.lineItems.$inferSelect;
 type NutritionRow = typeof schema.nutritionFacts.$inferSelect;
 type ConsumptionLogRow = typeof schema.consumptionLogs.$inferSelect;
@@ -14,6 +15,7 @@ type ImportableSettings = Pick<SettingsRow, "people" | "days">;
 type DataExport = {
   version: number;
   exportedAt: string;
+  productCatalog: ProductRow[];
   receipts: ReceiptRow[];
   lineItems: LineItemRow[];
   nutritionFacts: NutritionRow[];
@@ -102,7 +104,8 @@ function logsByReceipt(logs: ConsumptionLogRow[]) {
 }
 
 export async function exportFoodTrackerData(): Promise<DataExport> {
-  const [receipts, lineItems, nutritionFacts, consumptionLogs, settingsRows] = await Promise.all([
+  const [productCatalog, receipts, lineItems, nutritionFacts, consumptionLogs, settingsRows] = await Promise.all([
+    db.select().from(schema.productCatalog).orderBy(asc(schema.productCatalog.id)),
     db.select().from(schema.receipts).orderBy(asc(schema.receipts.id)),
     db.select().from(schema.lineItems).orderBy(asc(schema.lineItems.id)),
     db.select().from(schema.nutritionFacts).orderBy(asc(schema.nutritionFacts.lineItemId)),
@@ -115,6 +118,7 @@ export async function exportFoodTrackerData(): Promise<DataExport> {
   return {
     version: DATA_EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
+    productCatalog,
     receipts,
     lineItems,
     nutritionFacts,
@@ -127,6 +131,7 @@ export async function importFoodTrackerData(input: unknown) {
   const payload = asRecord(input);
   if (!payload) throw new Error("Import file must be a JSON object.");
 
+  const incomingProducts = Array.isArray(payload.productCatalog) ? payload.productCatalog : [];
   const incomingReceipts = Array.isArray(payload.receipts) ? payload.receipts : [];
   const incomingItems = Array.isArray(payload.lineItems) ? payload.lineItems : [];
   const incomingNutrition = Array.isArray(payload.nutritionFacts) ? payload.nutritionFacts : [];
@@ -144,16 +149,53 @@ export async function importFoodTrackerData(input: unknown) {
   );
 
   const importedReceiptIds = new Map<number, number>();
+  const importedProductIds = new Map<number, number>();
   const importedItemIds = new Map<number, number>();
   const sourceItemsByReceipt = groupByReceipt(incomingItems.map(normalizeLineItem).filter(Boolean) as LineItemRow[]);
   const nutritionByItem = groupByLineItem(incomingNutrition.map(normalizeNutrition).filter(Boolean) as NutritionRow[]);
   const sourceLogsByReceipt = logsByReceipt(incomingLogs.map(normalizeLog).filter(Boolean) as ConsumptionLogRow[]);
 
+  let importedProducts = 0;
   let importedReceipts = 0;
   let skippedReceipts = 0;
   let importedItems = 0;
   let importedNutritionFacts = 0;
   let importedLogs = 0;
+
+  for (const raw of incomingProducts) {
+    const product = normalizeProduct(raw);
+    if (!product) continue;
+    const [createdProduct] = await db
+      .insert(schema.productCatalog)
+      .values({
+        productKey: product.productKey,
+        displayName: product.displayName,
+        normalizedName: product.normalizedName,
+        brand: product.brand,
+        retailerSku: product.retailerSku,
+        productSource: product.productSource,
+        productUrl: product.productUrl,
+        productImageUrl: product.productImageUrl,
+        fdcId: product.fdcId,
+      })
+      .onConflictDoUpdate({
+        target: schema.productCatalog.productKey,
+        set: {
+          displayName: product.displayName,
+          normalizedName: product.normalizedName,
+          brand: product.brand,
+          retailerSku: product.retailerSku,
+          productSource: product.productSource,
+          productUrl: product.productUrl,
+          productImageUrl: product.productImageUrl,
+          fdcId: product.fdcId,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    importedProductIds.set(product.id, createdProduct.id);
+    importedProducts += 1;
+  }
 
   for (const raw of incomingReceipts) {
     const receipt = normalizeReceipt(raw);
@@ -190,6 +232,7 @@ export async function importFoodTrackerData(input: unknown) {
         .insert(schema.lineItems)
         .values({
           receiptId: createdReceipt.id,
+          productId: item.productId ? importedProductIds.get(item.productId) ?? null : null,
           rawName: item.rawName,
           normalizedName: item.normalizedName,
           brand: item.brand,
@@ -267,6 +310,7 @@ export async function importFoodTrackerData(input: unknown) {
 
   return {
     importedReceipts,
+    importedProducts,
     skippedReceipts,
     importedItems,
     importedNutritionFacts,
@@ -295,6 +339,28 @@ function normalizeReceipt(value: unknown): ReceiptRow | null {
   };
 }
 
+function normalizeProduct(value: unknown): ProductRow | null {
+  const row = asRecord(value);
+  const id = asInteger(row?.id);
+  const productKey = asString(row?.productKey);
+  const displayName = asString(row?.displayName);
+  if (!row || !id || !productKey || !displayName) return null;
+  return {
+    id,
+    productKey,
+    displayName,
+    normalizedName: asString(row.normalizedName),
+    brand: asString(row.brand),
+    retailerSku: asString(row.retailerSku),
+    productSource: asString(row.productSource),
+    productUrl: asString(row.productUrl),
+    productImageUrl: asString(row.productImageUrl),
+    fdcId: asInteger(row.fdcId),
+    firstSeenAt: new Date(asDateString(row.firstSeenAt) ?? Date.now()),
+    updatedAt: new Date(asDateString(row.updatedAt) ?? Date.now()),
+  };
+}
+
 function normalizeLineItem(value: unknown): LineItemRow | null {
   const row = asRecord(value);
   const id = asInteger(row?.id);
@@ -304,6 +370,7 @@ function normalizeLineItem(value: unknown): LineItemRow | null {
   return {
     id,
     receiptId,
+    productId: asInteger(row.productId),
     rawName,
     normalizedName: asString(row.normalizedName),
     brand: asString(row.brand),

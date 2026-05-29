@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { mergeCatalogFieldsIntoLineItem } from "@/lib/products/catalog";
 import {
   InventoryClone,
   type InventoryReceipt,
@@ -19,9 +20,11 @@ async function getReceipt(id: number) {
   const rows = await db
     .select({
       item: schema.lineItems,
+      product: schema.productCatalog,
       nutrition: schema.nutritionFacts,
     })
     .from(schema.lineItems)
+    .leftJoin(schema.productCatalog, eq(schema.productCatalog.id, schema.lineItems.productId))
     .leftJoin(schema.nutritionFacts, eq(schema.nutritionFacts.lineItemId, schema.lineItems.id))
     .where(eq(schema.lineItems.receiptId, id))
     .orderBy(asc(schema.lineItems.id));
@@ -34,7 +37,10 @@ async function getReceipt(id: number) {
 
   return {
     receipt,
-    items: rows.map((row) => ({ ...row.item, nutrition: row.nutrition })),
+    items: rows.map((row) => ({
+      ...mergeCatalogFieldsIntoLineItem(row.item, row.product),
+      nutrition: row.nutrition,
+    })),
     logs,
   };
 }

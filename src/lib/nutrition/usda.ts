@@ -1,5 +1,9 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import {
+  linkLineItemToCatalog,
+  syncProductCatalogMetadata,
+} from "@/lib/products/catalog";
 
 const FDC_BASE_URL = "https://api.nal.usda.gov/fdc/v1";
 const GRAMS_PER_LB = 453.59237;
@@ -309,6 +313,23 @@ async function findBestFood(rawName: string): Promise<MatchResult | null> {
   };
 }
 
+async function findCatalogFood(
+  product: typeof schema.productCatalog.$inferSelect | null,
+): Promise<MatchResult | null> {
+  if (!product?.fdcId || !product.normalizedName) return null;
+  const fallback: FoodSearchResult = {
+    fdcId: product.fdcId,
+    description: product.normalizedName,
+    brandName: product.brand ?? undefined,
+    brandOwner: product.brand ?? undefined,
+  };
+  return {
+    food: await getFoodDetails(product.fdcId, fallback),
+    score: 100,
+    query: "product catalog",
+  };
+}
+
 function toGrams(value: number, unit: string) {
   const normalized = unit.toLowerCase().replace(/\s+/g, "_");
   if (normalized === "g") return value;
@@ -512,6 +533,12 @@ async function saveNutrition(item: LineItem, match: MatchResult) {
       nutritionStatus: "matched",
     })
     .where(eq(schema.lineItems.id, item.id));
+
+  await syncProductCatalogMetadata(item.productId, {
+    fdcId: match.food.fdcId,
+    normalizedName: match.food.description,
+    brand: match.food.brandName ?? match.food.brandOwner ?? null,
+  });
 }
 
 async function markUnmatched(item: LineItem) {
@@ -528,6 +555,9 @@ async function markUnmatched(item: LineItem) {
 }
 
 export async function enrichReceiptNutrition(receiptId: number): Promise<ReceiptNutritionResult> {
+  const receipt = await db.query.receipts.findFirst({
+    where: eq(schema.receipts.id, receiptId),
+  });
   const items = await db
     .select()
     .from(schema.lineItems)
@@ -546,14 +576,16 @@ export async function enrichReceiptNutrition(receiptId: number): Promise<Receipt
       continue;
     }
 
-    const match = await findBestFood(item.rawName);
+    const product = await linkLineItemToCatalog(item, receipt?.vendor);
+    const itemWithProduct = { ...item, productId: product?.id ?? item.productId };
+    const match = (await findCatalogFood(product)) ?? (await findBestFood(item.rawName));
     if (!match) {
-      await markUnmatched(item);
+      await markUnmatched(itemWithProduct);
       result.unmatched += 1;
       continue;
     }
 
-    await saveNutrition(item, match);
+    await saveNutrition(itemWithProduct, match);
     result.matched += 1;
   }
 
