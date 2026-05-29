@@ -1,5 +1,7 @@
 # Food Tracker
 
+**[Try it live →](https://food-tracker-1.netlify.app/)**
+
 Parse grocery receipts and track nutrition. Drop in a Trader Joe's / Costco / Whole Foods receipt as text, photo, or forwarded email and see an itemized database.
 
 See [PROMPT.md](./PROMPT.md) for the full design spec.
