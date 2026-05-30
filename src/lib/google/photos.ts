@@ -243,6 +243,7 @@ export async function importGooglePhotosPickerSession(sessionId: string): Promis
 
   for (const item of mediaItems) {
     if (item.type && item.type !== "PHOTO") {
+      console.warn(`[photos] skip ${item.id}: type=${item.type} (not PHOTO)`);
       result.skipped += 1;
       continue;
     }
@@ -261,12 +262,18 @@ export async function importGooglePhotosPickerSession(sessionId: string): Promis
 
     try {
       const downloaded = await downloadPickedPhoto(item, accessToken);
+      console.warn(
+        `[photos] downloaded ${item.id}: ${downloaded.bytes.byteLength} bytes, ${downloaded.mimeType}`,
+      );
       const parsed = await parseReceipt({
         kind: "image",
         bytes: downloaded.bytes,
         mimeType: downloaded.mimeType,
       });
       if (!parsed.is_receipt) {
+        console.warn(
+          `[photos] skip ${item.id}: is_receipt=false (vendor=${parsed.vendor ?? "?"}, items=${parsed.items?.length ?? 0})`,
+        );
         result.skipped += 1;
         continue;
       }

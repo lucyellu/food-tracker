@@ -1,7 +1,10 @@
 import { parseWithDeepSeek } from "./deepseek";
 import { parseWithGemini, parseGeminiText } from "./gemini";
 import type { ParsedReceipt } from "./schema";
-import { extractTextWithGoogleVision } from "@/lib/ocr/google-vision";
+import {
+  extractTextWithGoogleVision,
+  isGoogleVisionOcrConfigured,
+} from "@/lib/ocr/google-vision";
 import { parsePriceSmartOrderText } from "@/lib/receipts/pricesmart";
 import { parseTntPackedOrderEmail } from "@/lib/receipts/tnt-email";
 import { parseUberEatsOrderText } from "@/lib/receipts/uber-eats";
@@ -11,9 +14,9 @@ export type ParseInput =
   | { kind: "image"; bytes: Uint8Array; mimeType: string }
   | { kind: "pdf"; bytes: Uint8Array };
 
-// Default to Gemini Flash for text — it's faster on structured extraction than
-// DeepSeek for receipts with 30+ line items, and the free tier covers personal
-// usage. DeepSeek stays available as a fallback if Gemini errors.
+// Text path: default to Gemini Flash (faster on 30+ line items, free tier covers
+// personal use), with DeepSeek as a fallback if Gemini errors. Image path: Google
+// Cloud Vision OCR → text parser (no Gemini vision). PDF path: Gemini vision.
 const USE_DEEPSEEK = process.env.PREFER_DEEPSEEK === "true";
 
 async function parseTextReceipt(text: string): Promise<ParsedReceipt> {
@@ -50,17 +53,21 @@ export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
     return parseTextReceipt(input.text);
   }
   if (input.kind === "image") {
-    try {
-      const ocrText = await extractTextWithGoogleVision(input.bytes, input.mimeType);
-      if (ocrText?.trim()) {
-        const parsed = await parseTextReceipt(ocrText);
-        if (parsed.is_receipt) return parsed;
-      }
-    } catch (e) {
-      console.warn("Google Vision OCR pre-pass failed, falling back to Gemini vision:", (e as Error).message);
+    // Images go through Google Cloud Vision OCR, then the text parser — no Gemini
+    // vision. The OCR'd text is handed to the same text path (DeepSeek/Gemini-text)
+    // that handles email bodies.
+    if (!isGoogleVisionOcrConfigured()) {
+      throw new Error(
+        "GOOGLE_CLOUD_VISION_API_KEY is not set — image receipts need Cloud Vision OCR.",
+      );
     }
-    return parseWithGemini(input.bytes, input.mimeType);
+    const ocrText = await extractTextWithGoogleVision(input.bytes, input.mimeType);
+    if (!ocrText?.trim()) {
+      throw new Error("Google Vision OCR returned no text for this image.");
+    }
+    return parseTextReceipt(ocrText);
   }
+  // PDFs can't be OCR'd inline by the Vision sync API, so they still use Gemini.
   return parseWithGemini(input.bytes, "application/pdf");
 }
 
