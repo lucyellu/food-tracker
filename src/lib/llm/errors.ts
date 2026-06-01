@@ -9,7 +9,7 @@ export function isRateLimitError(error: unknown) {
 
 export function conciseParseError(error: unknown) {
   if (isRateLimitError(error)) {
-    return "Gemini quota/rate limit was hit. The scan stopped early so it does not keep spending calls on the same limit.";
+    return "LLM quota/rate limit was hit. The scan stopped early so it does not keep spending calls on the same limit.";
   }
   return errorMessage(error);
 }

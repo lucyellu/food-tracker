@@ -11,7 +11,11 @@ type ProductCatalogInput = {
   rawName: string;
   retailerSku?: string | null;
   normalizedName?: string | null;
+  category?: string | null;
   brand?: string | null;
+  barcode?: string | null;
+  externalSource?: string | null;
+  externalId?: string | null;
   productSource?: string | null;
   productUrl?: string | null;
   productImageUrl?: string | null;
@@ -20,7 +24,17 @@ type ProductCatalogInput = {
 
 export type ProductCatalogPatch = Pick<
   ProductCatalogInput,
-  "normalizedName" | "brand" | "retailerSku" | "productSource" | "productUrl" | "productImageUrl" | "fdcId"
+  | "normalizedName"
+  | "category"
+  | "brand"
+  | "barcode"
+  | "externalSource"
+  | "externalId"
+  | "retailerSku"
+  | "productSource"
+  | "productUrl"
+  | "productImageUrl"
+  | "fdcId"
 >;
 
 function cleanText(value: string | null | undefined) {
@@ -73,7 +87,11 @@ export function productCatalogKey(input: Pick<ProductCatalogInput, "vendor" | "r
 function productValues(input: ProductCatalogInput) {
   return {
     normalizedName: cleanText(input.normalizedName),
+    category: cleanText(input.category),
     brand: cleanText(input.brand),
+    barcode: cleanText(input.barcode),
+    externalSource: cleanText(input.externalSource),
+    externalId: cleanText(input.externalId),
     retailerSku: cleanText(input.retailerSku),
     productSource: cleanText(input.productSource),
     productUrl: cleanText(input.productUrl),
@@ -87,7 +105,11 @@ function mergeProductPatch(product: Product, input: ProductCatalogInput): Produc
   return {
     ...product,
     normalizedName: patch.normalizedName ?? product.normalizedName,
+    category: patch.category ?? product.category,
     brand: patch.brand ?? product.brand,
+    barcode: patch.barcode ?? product.barcode,
+    externalSource: patch.externalSource ?? product.externalSource,
+    externalId: patch.externalId ?? product.externalId,
     retailerSku: patch.retailerSku ?? product.retailerSku,
     productSource: patch.productSource ?? product.productSource,
     productUrl: patch.productUrl ?? product.productUrl,
@@ -101,7 +123,11 @@ export async function syncProductCatalogMetadata(productId: number | null | unde
   const values = productValues({ rawName: "", ...patch });
   const set: Partial<typeof schema.productCatalog.$inferInsert> = {};
   if (values.normalizedName) set.normalizedName = values.normalizedName;
+  if (values.category) set.category = values.category;
   if (values.brand) set.brand = values.brand;
+  if (values.barcode) set.barcode = values.barcode;
+  if (values.externalSource) set.externalSource = values.externalSource;
+  if (values.externalId) set.externalId = values.externalId;
   if (values.retailerSku) set.retailerSku = values.retailerSku;
   if (values.productSource) set.productSource = values.productSource;
   if (values.productUrl) set.productUrl = values.productUrl;
@@ -127,7 +153,11 @@ export async function getOrCreateCatalogProductForLineItem(input: ProductCatalog
       productKey: key,
       displayName,
       normalizedName: values.normalizedName,
+      category: values.category,
       brand: values.brand,
+      barcode: values.barcode,
+      externalSource: values.externalSource,
+      externalId: values.externalId,
       retailerSku: values.retailerSku,
       productSource: values.productSource,
       productUrl: values.productUrl,
@@ -159,6 +189,7 @@ export async function linkLineItemToCatalog(item: LineItem, vendor: string | nul
     rawName: item.rawName,
     retailerSku: item.retailerSku,
     normalizedName: item.normalizedName,
+    category: item.category,
     brand: item.brand,
     productSource: item.productSource,
     productUrl: item.productUrl,
@@ -182,6 +213,7 @@ export function mergeCatalogFieldsIntoLineItem<T extends LineItem>(item: T, prod
   return {
     ...item,
     normalizedName: item.normalizedName ?? product.normalizedName,
+    category: item.category ?? product.category,
     brand: item.brand ?? product.brand,
     retailerSku: item.retailerSku ?? product.retailerSku,
     productSource: item.productSource ?? product.productSource,

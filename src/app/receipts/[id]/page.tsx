@@ -2,9 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { mergeCatalogFieldsIntoLineItem } from "@/lib/products/catalog";
+import { mergeCatalogFieldsIntoLineItem, vendorCatalogKey } from "@/lib/products/catalog";
+import { computeConsumptionWindow } from "@/lib/receipts/dates";
 import { EnrichNutritionButton } from "./EnrichNutritionButton";
 import { EnrichProductsButton } from "./EnrichProductsButton";
+import { ReceiptHeaderActions } from "./ReceiptHeaderActions";
 import {
   ReceiptNutritionTracker,
   type ReceiptTrackerItem,
@@ -99,6 +101,18 @@ export default async function ReceiptDetailPage({
   ]);
   if (!data) notFound();
   const { receipt, items, logs } = data;
+
+  // Consumption window: next same-vendor purchase or 7 days, whichever is sooner.
+  const vendorKey = vendorCatalogKey(receipt.vendor);
+  const sameVendorDates = receiptOutline
+    .filter((r) => r.id !== receipt.id && vendorCatalogKey(r.vendor) === vendorKey)
+    .map((r) => r.purchasedAt);
+  const plan = computeConsumptionWindow(receipt.purchasedAt, sameVendorDates);
+  const windowNote =
+    plan.cappedBy === "vendor" && plan.nextVendorDate
+      ? `Ends at next ${receipt.vendor ?? "vendor"} purchase (${plan.nextVendorDate}).`
+      : "Default 7-day window (no later purchase from this vendor).";
+
   const trackerItems = items.map((item) => ({
     ...item,
     rawName: item.rawName.replace(/^\[REFUNDED\]\s*/i, ""),
@@ -117,11 +131,22 @@ export default async function ReceiptDetailPage({
           </Link>
           <h1 className="text-2xl font-semibold mt-2">{receipt.vendor ?? "Unknown vendor"}</h1>
           <p className="text-sm text-zinc-500 mt-1">
-            {formatPlanRange(receipt.purchasedAt, 7)} · {items.length} receipt rows ·{" "}
-            {formatMoney(receipt.total)}
+            <span className="font-medium text-zinc-700 dark:text-zinc-300">
+              {plan.days} {plan.days === 1 ? "day" : "days"}
+            </span>{" "}
+            <span className="text-xs text-zinc-400">
+              ({formatPlanRange(receipt.purchasedAt, plan.days)})
+            </span>{" "}
+            · {items.length} receipt rows · {formatMoney(receipt.total)}
           </p>
         </div>
         <div className="flex flex-col gap-2">
+          <ReceiptHeaderActions
+            receiptId={receiptId}
+            vendor={receipt.vendor}
+            purchasedAt={receipt.purchasedAt}
+            total={receipt.total}
+          />
           <Link
             href={`/receipts/${receiptId}/read`}
             className="rounded-md border border-zinc-200 px-3 py-2 text-center text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
@@ -145,6 +170,8 @@ export default async function ReceiptDetailPage({
         initialLogs={logs}
         receiptOutline={receiptOutline}
         purchasedAt={receipt.purchasedAt}
+        initialDays={plan.days}
+        windowNote={windowNote}
       />
 
       <div className="text-xs text-zinc-500">

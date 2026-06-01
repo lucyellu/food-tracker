@@ -1,7 +1,7 @@
 "use client";
 
-import { CheckCircle2, Cpu, ExternalLink, KeyRound, Mail, RefreshCw, Search, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CheckCircle2, Cpu, ExternalLink, KeyRound, Mail, Pause, Play, RefreshCw, Search, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { EmailScanProgress } from "@/components/EmailScanProgress";
 import { mainVendorMarks, VendorMark } from "@/components/VendorMark";
 
@@ -78,6 +78,19 @@ type ScanCursor = {
   key: string;
   accountId?: number;
   pageTokens: Record<string, string>;
+  // Cumulative messages scanned so far for this scan key, and Gmail's estimate of
+  // the total matching the query, so we can show "~N older matches left".
+  scanned: number;
+  estimate: number | null;
+};
+type AutoScanStats = {
+  batches: number;
+  scanned: number;
+  parsed: number;
+  duplicates: number;
+  skipped: number;
+  failed: number;
+  remaining: number | null;
 };
 
 const GMAIL_MERCHANTS: Array<{ id: GmailMerchant; label: string }> = [
@@ -138,16 +151,38 @@ function saveScanFilter(filter: SavedScanFilter) {
 
 function readSavedScanCursor(key: string): ScanCursor | null {
   const saved = readJsonObject(SCAN_CURSOR_STORAGE_KEY);
-  const pageTokens = saved?.[key];
-  if (!pageTokens || typeof pageTokens !== "object") return null;
-  return { key, pageTokens: pageTokens as Record<string, string> };
+  const entry = saved?.[key];
+  if (!entry || typeof entry !== "object") return null;
+  const obj = entry as Record<string, unknown>;
+  // New shape stores { pageTokens, scanned, estimate, accountId }; legacy stored the
+  // pageTokens map directly (keys are account ids), so fall back to treating obj as it.
+  const hasShape = "pageTokens" in obj && obj.pageTokens != null && typeof obj.pageTokens === "object";
+  const pageTokens = (hasShape ? obj.pageTokens : obj) as Record<string, string>;
+  if (!pageTokens || typeof pageTokens !== "object" || Object.keys(pageTokens).length === 0) return null;
+  return {
+    key,
+    accountId: typeof obj.accountId === "number" ? obj.accountId : undefined,
+    pageTokens,
+    scanned: typeof obj.scanned === "number" ? obj.scanned : 0,
+    estimate: typeof obj.estimate === "number" ? obj.estimate : null,
+  };
 }
 
 function saveScanCursor(cursor: ScanCursor) {
   if (typeof window === "undefined") return;
   const saved = readJsonObject(SCAN_CURSOR_STORAGE_KEY) ?? {};
-  saved[cursor.key] = cursor.pageTokens;
+  saved[cursor.key] = {
+    pageTokens: cursor.pageTokens,
+    scanned: cursor.scanned,
+    estimate: cursor.estimate,
+    accountId: cursor.accountId,
+  };
   window.localStorage.setItem(SCAN_CURSOR_STORAGE_KEY, JSON.stringify(saved));
+}
+
+function remainingFromCursor(cursor: ScanCursor | null) {
+  if (!cursor || cursor.estimate == null) return null;
+  return Math.max(0, cursor.estimate - cursor.scanned);
 }
 
 function clearSavedScanCursor(key: string) {
@@ -157,7 +192,7 @@ function clearSavedScanCursor(key: string) {
   window.localStorage.setItem(SCAN_CURSOR_STORAGE_KEY, JSON.stringify(saved));
 }
 
-function syncMessage(data: SyncResponse) {
+function syncMessage(data: SyncResponse, remaining: number | null) {
   const accountErrors = data.accounts?.filter((account) => account.error) ?? [];
   const errorSuffix =
     accountErrors.length > 0
@@ -169,13 +204,41 @@ function syncMessage(data: SyncResponse) {
     data.skippedNoCandidates ? `${data.skippedNoCandidates} without readable receipt content` : null,
   ].filter(Boolean);
   const details = skipDetails.length > 0 ? ` (${skipDetails.join(", ")})` : "";
-  const rateLimit = data.rateLimited ? " Stopped early because Gemini quota/rate limit was hit." : "";
-  const more = data.hasMore ? " Older matches are available." : "";
+  const rateLimit = data.rateLimited ? " Stopped early because the LLM quota/rate limit was hit." : "";
+  const more = data.hasMore
+    ? remaining != null
+      ? ` ~${remaining.toLocaleString()} older match${remaining === 1 ? "" : "es"} left to scan.`
+      : " Older matches are available."
+    : " No older matches left.";
   return `Scanned ${data.scanned ?? 0}, checked ${data.candidates ?? 0} bodies/attachments (${
     data.attachments ?? 0
   } attachments), parsed ${data.parsed ?? 0}, duplicates ${data.duplicates ?? 0}, skipped ${
     data.skipped ?? 0
   }${details}, failed ${data.failed ?? 0}.${rateLimit}${more}${errorSuffix}`;
+}
+
+function autoScanMessage(
+  stats: AutoScanStats,
+  outcome: "running" | "paused" | "rate" | "done" | "error",
+) {
+  const base = `Auto-scan ${outcome === "running" ? "running" : "stopped"}: ${stats.batches} batch${
+    stats.batches === 1 ? "" : "es"
+  } of ${GMAIL_BATCH_SIZE}, scanned ${stats.scanned}, parsed ${stats.parsed}, duplicates ${
+    stats.duplicates
+  }, skipped ${stats.skipped}, failed ${stats.failed}.`;
+  const remaining =
+    outcome === "done" || stats.remaining == null
+      ? ""
+      : ` ~${stats.remaining.toLocaleString()} older match${stats.remaining === 1 ? "" : "es"} left.`;
+  const tail =
+    outcome === "rate"
+      ? " Paused on rate limit — resume in a moment."
+      : outcome === "paused"
+        ? " Paused — resume anytime."
+        : outcome === "done"
+          ? " Done — reached the oldest matching email."
+          : "";
+  return `${base}${remaining}${tail}`;
 }
 
 function formatEmailDate(value: string) {
@@ -323,6 +386,10 @@ export function SettingsGmailPanel() {
   const [yahooMailbox, setYahooMailbox] = useState("INBOX");
   const [message, setMessage] = useState<string | null>(null);
   const [scanCursor, setScanCursor] = useState<ScanCursor | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoStats, setAutoStats] = useState<AutoScanStats | null>(null);
+  const [pausing, setPausing] = useState(false);
+  const pauseRef = useRef(false);
   const [emailLogs, setEmailLogs] = useState<EmailLogRow[]>([]);
   const [emailLogsLoading, setEmailLogsLoading] = useState(false);
   const [emailLogSearch, setEmailLogSearch] = useState("");
@@ -350,6 +417,7 @@ export function SettingsGmailPanel() {
     setDays(nextDays);
     saveScanFilter({ merchant: nextMerchant, days: nextDays });
     setScanCursor(readSavedScanCursor(scanKey(nextMerchant, nextDays)));
+    setAutoStats(null);
   }
 
   useEffect(() => {
@@ -425,36 +493,78 @@ export function SettingsGmailPanel() {
     }
   }
 
+  // One Gmail/IMAP page fetch. Updates the saved cursor (tokens + cumulative scanned
+  // + estimate) and returns the data so callers can chain batches or report results.
+  async function performSync(opts: {
+    nextMerchant: GmailMerchant;
+    accountId?: number;
+    pageTokens?: Record<string, string>;
+    priorScanned: number;
+  }): Promise<{
+    data: SyncResponse;
+    nextCursor: ScanCursor | null;
+    cumulativeScanned: number;
+    estimate: number | null;
+  } | null> {
+    const res = await fetch("/api/google/sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        maxResults: GMAIL_BATCH_SIZE,
+        merchant: opts.nextMerchant,
+        days,
+        accountId: opts.accountId,
+        pageTokens: opts.pageTokens,
+      }),
+    });
+    const data = (await res.json()) as SyncResponse;
+    if (!res.ok) {
+      setMessage(
+        data.needsReconnect
+          ? data.error ?? "Google needs to be reconnected with Gmail read permission."
+          : data.error ?? `Inbox sync failed: ${res.status}`,
+      );
+      return null;
+    }
+    const key = scanKey(opts.nextMerchant, days, opts.accountId);
+    const cumulativeScanned = opts.priorScanned + (data.scanned ?? 0);
+    const estimate = data.resultSizeEstimate ?? null;
+    const hasMore = Boolean(data.hasMore && data.pageTokens && Object.keys(data.pageTokens).length > 0);
+    const nextCursor: ScanCursor | null = hasMore
+      ? {
+          key,
+          accountId: opts.accountId,
+          pageTokens: data.pageTokens as Record<string, string>,
+          scanned: cumulativeScanned,
+          estimate,
+        }
+      : null;
+    if (nextCursor) saveScanCursor(nextCursor);
+    else clearSavedScanCursor(key);
+    setScanCursor(nextCursor);
+    return { data, nextCursor, cumulativeScanned, estimate };
+  }
+
   async function syncInbox(nextMerchant = merchant, accountId?: number, continueOlder = false) {
     setBusy(true);
     setSyncing(true);
     setMessage(null);
+    setAutoStats(null);
     saveScanFilter({ merchant: nextMerchant, days });
     const key = scanKey(nextMerchant, days, accountId);
-    const pageTokens = continueOlder && scanCursor?.key === key ? scanCursor.pageTokens : undefined;
+    const resume = continueOlder && scanCursor?.key === key ? scanCursor : null;
     try {
-      const res = await fetch("/api/google/sync", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ maxResults: GMAIL_BATCH_SIZE, merchant: nextMerchant, days, accountId, pageTokens }),
+      const out = await performSync({
+        nextMerchant,
+        accountId,
+        pageTokens: resume?.pageTokens,
+        priorScanned: resume?.scanned ?? 0,
       });
-      const data = (await res.json()) as SyncResponse;
-      if (!res.ok) {
-        setMessage(
-          data.needsReconnect
-            ? data.error ?? "Google needs to be reconnected with Gmail read permission."
-            : data.error ?? `Inbox sync failed: ${res.status}`,
-        );
-        return;
+      if (out) {
+        const remaining =
+          out.estimate != null ? Math.max(0, out.estimate - out.cumulativeScanned) : null;
+        setMessage(`${continueOlder ? "Older batch — " : ""}${syncMessage(out.data, remaining)}`);
       }
-      setMessage(`${continueOlder ? "Older batch: " : ""}${syncMessage(data)}`);
-      const nextCursor =
-        data.hasMore && data.pageTokens && Object.keys(data.pageTokens).length > 0
-          ? { key, accountId, pageTokens: data.pageTokens }
-          : null;
-      if (nextCursor) saveScanCursor(nextCursor);
-      else clearSavedScanCursor(key);
-      setScanCursor(nextCursor);
       await loadIngestLog();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not process inbox.");
@@ -462,6 +572,79 @@ export function SettingsGmailPanel() {
       setSyncing(false);
       setBusy(false);
     }
+  }
+
+  // Walks batch-by-batch through every matching email (e.g. the full 10-year window),
+  // 50 at a time, until it runs out, hits a rate limit, or the user pauses.
+  async function startAutoScan(nextMerchant = merchant, accountId?: number) {
+    pauseRef.current = false;
+    setPausing(false);
+    setBusy(true);
+    setSyncing(true);
+    setAutoRunning(true);
+    setMessage(null);
+    saveScanFilter({ merchant: nextMerchant, days });
+    const key = scanKey(nextMerchant, days, accountId);
+    // Resume from a saved cursor for this exact filter, otherwise start from the newest page.
+    const resume = scanCursor?.key === key ? scanCursor : null;
+    let pageTokens = resume?.pageTokens;
+    let priorScanned = resume?.scanned ?? 0;
+    const stats: AutoScanStats = {
+      batches: 0,
+      scanned: priorScanned,
+      parsed: 0,
+      duplicates: 0,
+      skipped: 0,
+      failed: 0,
+      remaining: remainingFromCursor(resume),
+    };
+    setAutoStats({ ...stats });
+    try {
+      while (true) {
+        const out = await performSync({ nextMerchant, accountId, pageTokens, priorScanned });
+        if (!out) break; // error already surfaced by performSync
+        stats.batches += 1;
+        stats.scanned = out.cumulativeScanned;
+        stats.parsed += out.data.parsed ?? 0;
+        stats.duplicates += out.data.duplicates ?? 0;
+        stats.skipped += out.data.skipped ?? 0;
+        stats.failed += out.data.failed ?? 0;
+        stats.remaining = out.estimate != null ? Math.max(0, out.estimate - out.cumulativeScanned) : null;
+        setAutoStats({ ...stats });
+        await loadIngestLog();
+
+        if (out.data.rateLimited) {
+          setMessage(autoScanMessage(stats, "rate"));
+          break;
+        }
+        if (!out.nextCursor) {
+          setMessage(autoScanMessage(stats, "done"));
+          break;
+        }
+        if (pauseRef.current) {
+          setMessage(autoScanMessage(stats, "paused"));
+          break;
+        }
+        setMessage(autoScanMessage(stats, "running"));
+        pageTokens = out.nextCursor.pageTokens;
+        priorScanned = out.cumulativeScanned;
+      }
+    } catch (error) {
+      setMessage(
+        `${error instanceof Error ? error.message : "Auto-scan stopped."} ${autoScanMessage(stats, "error")}`,
+      );
+    } finally {
+      setAutoRunning(false);
+      setSyncing(false);
+      setBusy(false);
+      setPausing(false);
+    }
+  }
+
+  function pauseAutoScan() {
+    pauseRef.current = true;
+    setPausing(true);
+    setMessage("Finishing the current batch, then pausing…");
   }
 
   const accounts = status?.accounts ?? [];
@@ -598,17 +781,38 @@ export function SettingsGmailPanel() {
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void syncInbox()}
             disabled={busy || accounts.length === 0}
             className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
           >
-            <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
-            Sync all inboxes
+            <RefreshCw className={`h-4 w-4 ${busy && !autoRunning ? "animate-spin" : ""}`} />
+            Scan {GMAIL_BATCH_SIZE}
           </button>
-          {scanCursor ? (
+          {autoRunning ? (
+            <button
+              type="button"
+              onClick={pauseAutoScan}
+              disabled={pausing}
+              className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
+            >
+              <Pause className="h-4 w-4" />
+              Pause
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void startAutoScan()}
+              disabled={busy || accounts.length === 0}
+              className="inline-flex items-center gap-2 rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              <Play className="h-4 w-4" />
+              {scanCursor ? "Continue auto-scan" : `Auto-scan all (${dayWindowLabel(days)})`}
+            </button>
+          )}
+          {scanCursor && !autoRunning ? (
             <button
               type="button"
               onClick={() => void syncInbox(merchant, scanCursor.accountId, true)}
@@ -616,7 +820,10 @@ export function SettingsGmailPanel() {
               className="inline-flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
             >
               <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} />
-              Scan next older batch
+              Scan next {GMAIL_BATCH_SIZE}
+              {remainingFromCursor(scanCursor) != null
+                ? ` (~${remainingFromCursor(scanCursor)!.toLocaleString()} left)`
+                : ""}
             </button>
           ) : null}
         </div>
@@ -688,7 +895,25 @@ export function SettingsGmailPanel() {
 
       {syncing ? (
         <div className="mt-4">
-          <EmailScanProgress />
+          <EmailScanProgress
+            label={autoRunning ? "Auto-scanning inboxes…" : "Scanning inboxes…"}
+            detail={
+              autoStats
+                ? `Batch ${autoStats.batches} · ${autoStats.scanned.toLocaleString()} scanned, ${autoStats.parsed} parsed${
+                    autoStats.remaining != null
+                      ? ` · ~${autoStats.remaining.toLocaleString()} left`
+                      : ""
+                  }`
+                : scanCursor?.estimate != null
+                  ? `~${remainingFromCursor(scanCursor)?.toLocaleString() ?? "?"} emails left to scan`
+                  : "Reading messages, attachments, and likely receipt bodies."
+            }
+            progress={
+              autoStats?.remaining != null && autoStats.scanned + autoStats.remaining > 0
+                ? autoStats.scanned / (autoStats.scanned + autoStats.remaining)
+                : null
+            }
+          />
         </div>
       ) : null}
 

@@ -27,7 +27,8 @@ export function compressWhitespace(text: string): string {
 }
 
 // Retry a flaky network call with exponential backoff. Bails immediately on
-// real API errors (400 / 401 / 403) — only retries network / 5xx / 429.
+// 4xx errors (including 429 rate limits — the caller's circuit breaker handles
+// those) — only retries on network errors and 5xx.
 export async function withRetry<T>(
   fn: () => Promise<T>,
   opts: { attempts?: number; baseDelayMs?: number; label?: string } = {},
@@ -42,13 +43,9 @@ export async function withRetry<T>(
     } catch (e) {
       lastErr = e;
       const err = e as Error & { status?: number };
-      // Auth / validation errors won't succeed on retry — bail immediately.
-      if (
-        typeof err.status === "number" &&
-        err.status >= 400 &&
-        err.status < 500 &&
-        err.status !== 429
-      ) {
+      // Any 4xx (including 429) won't succeed on immediate retry — bail so the
+      // circuit breaker in parse.ts can route to DeepSeek without delay.
+      if (typeof err.status === "number" && err.status >= 400 && err.status < 500) {
         throw e;
       }
       if (i < attempts - 1) {

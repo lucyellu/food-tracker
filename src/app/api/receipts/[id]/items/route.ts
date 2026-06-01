@@ -76,6 +76,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     productSource: "Manual",
   });
 
+  const entryCategory =
+    entryType === "cannabis"
+      ? "cannabis"
+      : entryType === "medication"
+        ? "supplement"
+        : entryType === "alcohol" || entryType === "caffeine"
+          ? "drink"
+          : "other";
+
   const [item] = await db
     .insert(schema.lineItems)
     .values({
@@ -83,6 +92,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       productId: product?.id ?? null,
       rawName: name,
       normalizedName: name,
+      category: entryCategory,
       quantity: 1,
       unit: entryType,
       price: finiteOrNull(body.price),

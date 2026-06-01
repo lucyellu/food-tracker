@@ -65,7 +65,8 @@ function parseVendor(lines: string[]) {
     if (vendor) return vendor;
   }
 
-  return lines.find((line) => /costco/i.test(line)) ?? "Uber Eats";
+  if (lines.some((line) => /costco/i.test(line))) return "Costco";
+  return "Uber Eats";
 }
 
 function parseTotal(lines: string[]) {
@@ -102,6 +103,7 @@ function parseInlineItemLine(line: string): ParsedReceipt["items"][number] | nul
       quantity: prefixQuantity[1] ? Number(prefixQuantity[1]) : 1,
       unit: "count",
       price: Number(prefixQuantity[3]),
+      category: null,
       active_ingredients: null,
     };
   }
@@ -113,6 +115,7 @@ function parseInlineItemLine(line: string): ParsedReceipt["items"][number] | nul
       quantity: Number(suffixQuantity[2]),
       unit: "count",
       price: Number(suffixQuantity[3]),
+      category: null,
       active_ingredients: null,
     };
   }
@@ -135,6 +138,7 @@ function parseStructuredItems(lines: string[]) {
       quantity: quantity.quantity,
       unit: quantity.unit,
       price: Number(priceMatch[1]),
+      category: null,
       active_ingredients: null,
     });
 

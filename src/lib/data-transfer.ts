@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 
-export const DATA_EXPORT_VERSION = 2;
+export const DATA_EXPORT_VERSION = 3;
 
 type ReceiptRow = typeof schema.receipts.$inferSelect;
 type ProductRow = typeof schema.productCatalog.$inferSelect;
@@ -171,7 +171,11 @@ export async function importFoodTrackerData(input: unknown) {
         productKey: product.productKey,
         displayName: product.displayName,
         normalizedName: product.normalizedName,
+        category: product.category,
         brand: product.brand,
+        barcode: product.barcode,
+        externalSource: product.externalSource,
+        externalId: product.externalId,
         retailerSku: product.retailerSku,
         productSource: product.productSource,
         productUrl: product.productUrl,
@@ -183,7 +187,11 @@ export async function importFoodTrackerData(input: unknown) {
         set: {
           displayName: product.displayName,
           normalizedName: product.normalizedName,
+          category: product.category,
           brand: product.brand,
+          barcode: product.barcode,
+          externalSource: product.externalSource,
+          externalId: product.externalId,
           retailerSku: product.retailerSku,
           productSource: product.productSource,
           productUrl: product.productUrl,
@@ -235,6 +243,7 @@ export async function importFoodTrackerData(input: unknown) {
           productId: item.productId ? importedProductIds.get(item.productId) ?? null : null,
           rawName: item.rawName,
           normalizedName: item.normalizedName,
+          category: item.category,
           brand: item.brand,
           quantity: item.quantity,
           unit: item.unit,
@@ -245,6 +254,7 @@ export async function importFoodTrackerData(input: unknown) {
           productImageUrl: item.productImageUrl,
           consumptionStatus: item.consumptionStatus,
           statusDate: item.statusDate,
+          autoConsumed: item.autoConsumed,
           fdcId: item.fdcId,
           nutritionStatus: item.nutritionStatus,
         })
@@ -350,7 +360,11 @@ function normalizeProduct(value: unknown): ProductRow | null {
     productKey,
     displayName,
     normalizedName: asString(row.normalizedName),
+    category: asString(row.category),
     brand: asString(row.brand),
+    barcode: asString(row.barcode),
+    externalSource: asString(row.externalSource),
+    externalId: asString(row.externalId),
     retailerSku: asString(row.retailerSku),
     productSource: asString(row.productSource),
     productUrl: asString(row.productUrl),
@@ -373,6 +387,7 @@ function normalizeLineItem(value: unknown): LineItemRow | null {
     productId: asInteger(row.productId),
     rawName,
     normalizedName: asString(row.normalizedName),
+    category: asString(row.category),
     brand: asString(row.brand),
     quantity: asNumber(row.quantity) ?? 1,
     unit: asString(row.unit) ?? "count",
@@ -383,6 +398,7 @@ function normalizeLineItem(value: unknown): LineItemRow | null {
     productImageUrl: asString(row.productImageUrl),
     consumptionStatus: pickEnum(row.consumptionStatus, ITEM_STATUSES, "available"),
     statusDate: asString(row.statusDate),
+    autoConsumed: Boolean(row.autoConsumed),
     fdcId: asInteger(row.fdcId),
     nutritionStatus: pickEnum(row.nutritionStatus, NUTRITION_STATUSES, "pending"),
   };
