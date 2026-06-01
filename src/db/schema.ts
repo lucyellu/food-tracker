@@ -45,7 +45,11 @@ export const productCatalog = pgTable(
     productKey: text("product_key").notNull(),
     displayName: text("display_name").notNull(),
     normalizedName: text("normalized_name"),
+    category: text("category"),
     brand: text("brand"),
+    barcode: text("barcode"),
+    externalSource: text("external_source"),
+    externalId: text("external_id"),
     retailerSku: text("retailer_sku"),
     productSource: text("product_source"),
     productUrl: text("product_url"),
@@ -62,6 +66,8 @@ export const productCatalog = pgTable(
     uniqueIndex("product_catalog_product_key_unique").on(t.productKey),
     index("product_catalog_display_name_idx").on(t.displayName),
     index("product_catalog_retailer_sku_idx").on(t.retailerSku),
+    index("product_catalog_barcode_idx").on(t.barcode),
+    index("product_catalog_external_idx").on(t.externalSource, t.externalId),
   ],
 );
 
@@ -77,6 +83,7 @@ export const lineItems = pgTable(
     }),
     rawName: text("raw_name").notNull(),
     normalizedName: text("normalized_name"),
+    category: text("category"),
     brand: text("brand"),
     quantity: doublePrecision("quantity").notNull().default(1),
     unit: text("unit").notNull().default("count"),
@@ -91,6 +98,7 @@ export const lineItems = pgTable(
       .notNull()
       .default("available"),
     statusDate: text("status_date"),
+    autoConsumed: boolean("auto_consumed").notNull().default(false),
     fdcId: integer("fdc_id"),
     nutritionStatus: text("nutrition_status", {
       enum: ["pending", "matched", "unmatched", "manual"],

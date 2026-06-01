@@ -4,6 +4,10 @@ import {
   linkLineItemToCatalog,
   syncProductCatalogMetadata,
 } from "@/lib/products/catalog";
+import {
+  enrichLineItemWithOpenFoodFacts,
+  openFoodFactsSearchLimitPerReceipt,
+} from "@/lib/products/open-food-facts";
 
 const FDC_BASE_URL = "https://api.nal.usda.gov/fdc/v1";
 const GRAMS_PER_LB = 453.59237;
@@ -110,6 +114,9 @@ type MatchResult = {
 export type ReceiptNutritionResult = {
   total: number;
   matched: number;
+  openFoodFacts: number;
+  openFoodFactsSearches: number;
+  openFoodFactsErrors: number;
   unmatched: number;
   skippedRefunded: number;
 };
@@ -566,9 +573,13 @@ export async function enrichReceiptNutrition(receiptId: number): Promise<Receipt
   const result: ReceiptNutritionResult = {
     total: items.length,
     matched: 0,
+    openFoodFacts: 0,
+    openFoodFactsSearches: 0,
+    openFoodFactsErrors: 0,
     unmatched: 0,
     skippedRefunded: 0,
   };
+  const openFoodFactsSearchLimit = openFoodFactsSearchLimitPerReceipt();
 
   for (const item of items) {
     if (/^\[REFUNDED\]/i.test(item.rawName)) {
@@ -578,6 +589,23 @@ export async function enrichReceiptNutrition(receiptId: number): Promise<Receipt
 
     const product = await linkLineItemToCatalog(item, receipt?.vendor);
     const itemWithProduct = { ...item, productId: product?.id ?? item.productId };
+    const shouldTryOpenFoodFacts =
+      !product?.fdcId || product.externalSource === "open_food_facts" || Boolean(product.barcode);
+    if (shouldTryOpenFoodFacts) {
+      const openFoodFactsResult = await enrichLineItemWithOpenFoodFacts({
+        item: itemWithProduct,
+        product,
+        allowSearch: result.openFoodFactsSearches < openFoodFactsSearchLimit,
+      });
+      if (openFoodFactsResult.searched) result.openFoodFactsSearches += 1;
+      if (openFoodFactsResult.error) result.openFoodFactsErrors += 1;
+      if (openFoodFactsResult.nutritionMatched) {
+        result.openFoodFacts += 1;
+        result.matched += 1;
+        continue;
+      }
+    }
+
     const match = (await findCatalogFood(product)) ?? (await findBestFood(item.rawName));
     if (!match) {
       await markUnmatched(itemWithProduct);

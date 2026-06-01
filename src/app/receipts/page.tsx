@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { desc, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { RecategorizeButton } from "./RecategorizeButton";
+import { PotentialDuplicates, type DuplicateGroup } from "./PotentialDuplicates";
+import { SpendSummary } from "./SpendSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +93,31 @@ function sortedReceipts(receipts: Awaited<ReturnType<typeof getReceipts>>, sort:
   });
 }
 
+// Groups receipts that share an exact purchase date and total — the strongest signal
+// for an accidental duplicate (e.g. the same order scanned from two emails).
+function buildDuplicateGroups(receipts: Awaited<ReturnType<typeof getReceipts>>): DuplicateGroup[] {
+  const byKey = new Map<string, DuplicateGroup>();
+  for (const r of receipts) {
+    if (!r.purchasedAt || r.total == null) continue;
+    const key = `${r.purchasedAt}|${Math.round(r.total * 100)}`;
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, purchasedAt: r.purchasedAt, total: r.total, receipts: [] };
+      byKey.set(key, group);
+    }
+    group.receipts.push({
+      id: r.id,
+      vendor: r.vendor,
+      source: r.source,
+      sourceLabel: SOURCE_LABEL[r.source] ?? r.source,
+      itemCount: Number(r.itemCount),
+    });
+  }
+  return [...byKey.values()]
+    .filter((group) => group.receipts.length > 1)
+    .sort((a, b) => b.purchasedAt.localeCompare(a.purchasedAt));
+}
+
 function sortHref(key: SortKey, activeSort: SortKey, activeDir: SortDir) {
   const nextDir: SortDir = activeSort === key && activeDir === "asc" ? "desc" : "asc";
   return `/receipts?sort=${key}&dir=${nextDir}`;
@@ -131,6 +159,7 @@ export default async function ReceiptsPage({
   const sort = parseSort(params.sort);
   const dir = parseDir(params.dir);
   const receipts = sortedReceipts(await getReceipts(), sort, dir);
+  const duplicateGroups = buildDuplicateGroups(receipts);
 
   if (receipts.length === 0) {
     return (
@@ -151,10 +180,17 @@ export default async function ReceiptsPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-semibold">All receipts</h1>
-        <span className="text-sm text-zinc-500">{receipts.length} total</span>
+        <div className="flex items-center gap-3">
+          <RecategorizeButton />
+          <span className="text-sm text-zinc-500">{receipts.length} total</span>
+        </div>
       </div>
+
+      <SpendSummary receipts={receipts} />
+
+      <PotentialDuplicates groups={duplicateGroups} />
 
       <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
         <table className="w-full text-sm">

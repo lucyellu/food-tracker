@@ -4,6 +4,10 @@ import {
   linkLineItemToCatalog,
   syncProductCatalogMetadata,
 } from "@/lib/products/catalog";
+import {
+  enrichLineItemWithOpenFoodFacts,
+  openFoodFactsSearchLimitPerReceipt,
+} from "@/lib/products/open-food-facts";
 
 const TNT_GRAPHQL_URL = "https://www.tntsupermarket.com/graphql";
 const CANNABIS_PRODUCT_RE =
@@ -121,7 +125,18 @@ export async function enrichProductsForReceipt(receiptId: number) {
     .from(schema.lineItems)
     .where(eq(schema.lineItems.receiptId, receiptId));
 
-  const result = { total: items.length, linked: 0, fallbackLinks: 0, failed: 0, skipped: 0 };
+  const result = {
+    total: items.length,
+    linked: 0,
+    fallbackLinks: 0,
+    failed: 0,
+    skipped: 0,
+    openFoodFactsLinked: 0,
+    openFoodFactsNutrition: 0,
+    openFoodFactsSearches: 0,
+    openFoodFactsErrors: 0,
+  };
+  const openFoodFactsSearchLimit = openFoodFactsSearchLimitPerReceipt();
 
   for (const item of items) {
     const catalogProduct = await linkLineItemToCatalog(item, receipt?.vendor);
@@ -152,6 +167,20 @@ export async function enrichProductsForReceipt(receiptId: number) {
 
     if (isCannabisProduct(item, receipt?.vendor)) {
       result.skipped += 1;
+      continue;
+    }
+
+    const openFoodFactsResult = await enrichLineItemWithOpenFoodFacts({
+      item: { ...item, productId },
+      product: catalogProduct,
+      allowSearch: result.openFoodFactsSearches < openFoodFactsSearchLimit,
+    });
+    if (openFoodFactsResult.searched) result.openFoodFactsSearches += 1;
+    if (openFoodFactsResult.error) result.openFoodFactsErrors += 1;
+    if (openFoodFactsResult.matched) {
+      result.linked += 1;
+      result.openFoodFactsLinked += 1;
+      if (openFoodFactsResult.nutritionMatched) result.openFoodFactsNutrition += 1;
       continue;
     }
 

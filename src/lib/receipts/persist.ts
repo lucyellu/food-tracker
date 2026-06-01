@@ -5,6 +5,7 @@ import {
   productCatalogKey,
 } from "@/lib/products/catalog";
 import { cannabisNutritionForParsedItem } from "@/lib/receipts/cannabis";
+import { categorizeItem } from "@/lib/products/category";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 
 type PersistReceiptInput = {
@@ -39,6 +40,14 @@ export async function persistParsedReceipt({
 
   if (parsed.items.length > 0) {
     const cannabisNutrition = parsed.items.map(cannabisNutritionForParsedItem);
+    const categories = parsed.items.map((it, index) =>
+      it.category ??
+      categorizeItem({
+        rawName: it.raw_name,
+        unit: it.unit,
+        hasActiveIngredients: Boolean(cannabisNutrition[index]),
+      }),
+    );
     const productCache = new Map<
       string,
       ReturnType<typeof getOrCreateCatalogProductForLineItem>
@@ -54,6 +63,7 @@ export async function persistParsedReceipt({
         const productRequest = getOrCreateCatalogProductForLineItem({
           vendor: parsed.vendor,
           rawName: it.raw_name,
+          category: categories[index],
           productSource: cannabisNutrition[index] ? "Controlled label" : null,
         });
         if (key) productCache.set(key, productRequest);
@@ -66,6 +76,7 @@ export async function persistParsedReceipt({
         receiptId: receipt.id,
         productId: product?.id ?? null,
         rawName: it.raw_name,
+        category: categories[index],
         quantity: it.quantity,
         unit: it.unit,
         price: it.price,

@@ -30,7 +30,9 @@ npm run dev
 
 Visit http://localhost:3000.
 
-You need: DeepSeek key, Gemini key, USDA key (Phase 2), and a Neon Postgres URL (`DATABASE_URL`). Sign up for Neon at https://neon.tech — free tier covers this app, no credit card.
+You need: DeepSeek key, Gemini key, USDA key (Phase 2), and a Postgres URL (`DATABASE_URL`). The current default uses Neon Postgres because it is quick to set up and works well with Netlify; the schema itself is plain Postgres and can be moved later with `pg_dump` / `pg_restore`.
+
+Open Food Facts enrichment is optional and read-only. It does not need an API key, but set `OPEN_FOOD_FACTS_USER_AGENT` to a custom value with a contact email if you deploy the app publicly.
 
 For Gmail and Google Photos import, create a Google Cloud OAuth Web client, enable the Gmail API and Google Photos Picker API, and add this authorized redirect URI for local development:
 
@@ -43,7 +45,7 @@ Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EMAIL_ENCRYPTION_KEY`.
 ## Architecture
 
 - **Next.js 16 App Router** (TypeScript, React 19).
-- **Database**: Drizzle ORM over Neon serverless Postgres (`@neondatabase/serverless`). Single connection string powers both local dev and Netlify production — no SQLite, no local DB install.
+- **Database**: Drizzle ORM over Neon serverless Postgres (`@neondatabase/serverless`). Single connection string powers both local dev and Netlify production. The tables are standard Postgres, so the main migration work for moving off Neon is swapping the Drizzle driver and restoring the data into another Postgres host.
 - **LLM routing** (`src/lib/llm/parse.ts`):
   - Text + email → DeepSeek `deepseek-chat` (cheap, ~$0.14/1M input)
   - Images + PDFs → Google Gemini 2.0 Flash (cheapest vision-capable)

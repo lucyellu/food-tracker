@@ -10,6 +10,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { CATEGORIES, CATEGORY_LABELS, type Category } from "@/lib/products/category";
 
 type ConsumptionStatus =
   | "available"
@@ -98,6 +99,7 @@ export type ReceiptTrackerItem = {
   id: number;
   rawName: string;
   normalizedName: string | null;
+  category: string | null;
   quantity: number;
   unit: string;
   price: number | null;
@@ -154,6 +156,22 @@ type Totals = {
   knownItems: number;
   itemCount: number;
 };
+
+const CATEGORY_BADGE: Record<Category, string> = {
+  food: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
+  drink: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300",
+  cannabis: "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300",
+  supplement: "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
+  household: "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  personal_care: "border-pink-300 bg-pink-50 text-pink-700 dark:border-pink-900 dark:bg-pink-950/40 dark:text-pink-300",
+  other: "border-zinc-300 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400",
+};
+
+function categoryOf(item: { category: string | null }): Category {
+  return (CATEGORIES as readonly string[]).includes(item.category ?? "")
+    ? (item.category as Category)
+    : "other";
+}
 
 const STATUS_OPTIONS: ConsumptionStatus[] = [
   "available",
@@ -823,19 +841,23 @@ export function ReceiptNutritionTracker({
   initialLogs,
   receiptOutline,
   purchasedAt,
+  initialDays = 7,
+  windowNote = null,
 }: {
   receiptId: number;
   initialItems: ReceiptTrackerItem[];
   initialLogs: ReceiptConsumptionLog[];
   receiptOutline: ReceiptOutline[];
   purchasedAt: string | null;
+  initialDays?: number;
+  windowNote?: string | null;
 }) {
   const startDate = purchasedAt && /^\d{4}-\d{2}-\d{2}$/.test(purchasedAt) ? purchasedAt : todayIso();
   const [items, setItems] = useState(initialItems);
   const [logs, setLogs] = useState(initialLogs);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [people, setPeople] = useState(2);
-  const [days, setDays] = useState(7);
+  const [days, setDays] = useState(Math.max(initialDays, 1));
   const [view, setView] = useState<ViewMode>("table");
   const [selectedRate, setSelectedRate] = useState<RateMode>("total");
   const [statusDate, setStatusDate] = useState(startDate);
@@ -859,6 +881,8 @@ export function ReceiptNutritionTracker({
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [detailsCollapsed, setDetailsCollapsed] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [itemEdit, setItemEdit] = useState({ rawName: "", quantity: "1", price: "", category: "other" as Category });
+  const [itemEditForId, setItemEditForId] = useState<number | undefined>(undefined);
 
   const planEnd = addDaysToIso(startDate, Math.max(days, 1));
   const trackedItems = useMemo(() => items.filter(isTrackedForPlan), [items]);
@@ -867,6 +891,17 @@ export function ReceiptNutritionTracker({
     [items, selectedIds],
   );
   const selectedPrimaryItem = selectedItems[0];
+  // Reseed the edit form when the selected row changes (render-time adjustment,
+  // the React-recommended alternative to a setState-in-effect).
+  if (selectedPrimaryItem && selectedPrimaryItem.id !== itemEditForId) {
+    setItemEditForId(selectedPrimaryItem.id);
+    setItemEdit({
+      rawName: selectedPrimaryItem.rawName,
+      quantity: String(selectedPrimaryItem.quantity ?? 1),
+      price: selectedPrimaryItem.price == null ? "" : String(selectedPrimaryItem.price),
+      category: categoryOf(selectedPrimaryItem),
+    });
+  }
   const selectedPrimaryLogs = useMemo(
     () =>
       selectedPrimaryItem
@@ -1289,6 +1324,76 @@ export function ReceiptNutritionTracker({
     }
   }
 
+  async function saveItemEdits() {
+    if (!selectedPrimaryItem) return;
+    const id = selectedPrimaryItem.id;
+    const rawName = itemEdit.rawName.trim();
+    if (!rawName) return;
+    const quantity = Math.max(Number(itemEdit.quantity) || 1, 0.0001);
+    const price = itemEdit.price.trim() === "" ? null : Number(itemEdit.price);
+    if (price != null && (!Number.isFinite(price) || price < 0)) return;
+    const category = itemEdit.category;
+
+    setSaving(true);
+    const previous = items;
+    setItems((current) =>
+      current.map((item) =>
+        item.id === id ? { ...item, rawName, quantity, price, category } : item,
+      ),
+    );
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/items/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rawName, quantity, price, category }),
+      });
+      if (!res.ok) setItems(previous);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setItemCategory(id: number, category: Category) {
+    setSaving(true);
+    const previous = items;
+    setItems((current) =>
+      current.map((item) => (item.id === id ? { ...item, category } : item)),
+    );
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/items/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ category }),
+      });
+      if (!res.ok) setItems(previous);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteItem(id: number) {
+    if (!confirm("Delete this line item? This cannot be undone.")) return;
+    setSaving(true);
+    const previousItems = items;
+    const previousLogs = logs;
+    setItems((current) => current.filter((item) => item.id !== id));
+    setLogs((current) => current.filter((log) => log.lineItemId !== id));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/receipts/${receiptId}/items/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        setItems(previousItems);
+        setLogs(previousLogs);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function selectAllVisible() {
     setSelectedIds(new Set(visibleIds));
   }
@@ -1441,6 +1546,20 @@ export function ReceiptNutritionTracker({
                         {item.normalizedName ? (
                           <div className="mt-0.5 max-w-64 truncate text-[11px] text-zinc-500">{item.normalizedName}</div>
                         ) : null}
+                        <select
+                          value={categoryOf(item)}
+                          disabled={saving}
+                          aria-label={`Category for ${item.rawName}`}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setItemCategory(item.id, e.target.value as Category)}
+                          className={`mt-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${CATEGORY_BADGE[categoryOf(item)]}`}
+                        >
+                          {CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {CATEGORY_LABELS[cat]}
+                            </option>
+                          ))}
+                        </select>
                         <div className="mt-0.5 max-w-64 truncate text-[11px] text-zinc-500">
                           {item.productUrl ? (
                             <a
@@ -1742,8 +1861,19 @@ export function ReceiptNutritionTracker({
                 />
               </label>
             </div>
-            <div className="mt-2 text-xs text-zinc-500">
-              {startDate} to {planEnd}. Excludes disposed, unavailable, and refunded rows.
+            <div className="mt-2">
+              <div className="text-base font-semibold leading-tight">
+                {days} {days === 1 ? "day" : "days"}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {startDate} – {planEnd}
+              </div>
+              {windowNote ? (
+                <div className="mt-0.5 text-[11px] text-zinc-500">{windowNote}</div>
+              ) : null}
+              <div className="mt-1 text-[11px] text-zinc-500">
+                Excludes disposed, unavailable, and refunded rows.
+              </div>
             </div>
             <div className="mt-1 text-xs text-zinc-500">{DAILY_VALUE_BASIS}</div>
           </div>
@@ -1949,6 +2079,80 @@ export function ReceiptNutritionTracker({
               {selectedDenominator ? `Showing ${rateLabel(selectedRate).toLowerCase()}.` : "This basis needs serving or weight data."}
             </span>
           </label>
+          {selectedPrimaryItem ? (
+            <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold">Edit item</div>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => deleteItem(selectedPrimaryItem.id)}
+                  className="text-xs font-medium text-zinc-500 hover:text-red-600 disabled:opacity-50"
+                >
+                  Delete row
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                <label className="block text-xs">
+                  <span className="mb-1 block text-zinc-500">Name</span>
+                  <input
+                    value={itemEdit.rawName}
+                    onChange={(e) => setItemEdit((s) => ({ ...s, rawName: e.target.value }))}
+                    className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs">
+                    <span className="mb-1 block text-zinc-500">Quantity</span>
+                    <input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={itemEdit.quantity}
+                      onChange={(e) => setItemEdit((s) => ({ ...s, quantity: e.target.value }))}
+                      className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                    />
+                  </label>
+                  <label className="text-xs">
+                    <span className="mb-1 block text-zinc-500">Price</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      placeholder="—"
+                      value={itemEdit.price}
+                      onChange={(e) => setItemEdit((s) => ({ ...s, price: e.target.value }))}
+                      className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                    />
+                  </label>
+                </div>
+                <label className="block text-xs">
+                  <span className="mb-1 block text-zinc-500">Category</span>
+                  <select
+                    value={itemEdit.category}
+                    onChange={(e) => setItemEdit((s) => ({ ...s, category: e.target.value as Category }))}
+                    className="w-full rounded-md border border-zinc-200 bg-transparent px-2 py-2 dark:border-zinc-800"
+                  >
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {CATEGORY_LABELS[cat]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={saving || !itemEdit.rawName.trim()}
+                  onClick={saveItemEdits}
+                  className="rounded-md border border-zinc-900 bg-zinc-900 px-3 py-2 text-xs font-medium text-white disabled:opacity-50 dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-950"
+                >
+                  Save changes
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
             <div className="text-sm font-semibold">Log consumption</div>
             <div className="mt-1 text-xs text-zinc-500">

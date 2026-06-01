@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CATEGORIES } from "@/lib/products/category";
 
 export const UNITS = [
   "oz",
@@ -57,6 +58,7 @@ export const ParsedItemSchema = z.object({
   quantity: z.number().positive().default(1),
   unit: z.string().default("count"),
   price: z.number().nullable().default(null),
+  category: z.enum(CATEGORIES).nullable().default(null),
   active_ingredients: ParsedActiveIngredientSchema,
 });
 
@@ -85,6 +87,7 @@ Output schema:
       "quantity": number,
       "unit": string,
       "price": number | null,
+      "category": "food" | "drink" | "cannabis" | "supplement" | "household" | "personal_care" | "other",
       "active_ingredients": {
         "thc_mg": number | null,
         "cbd_mg": number | null,
@@ -114,6 +117,7 @@ Rules:
 - Cannabis product labels with a product name and visible cannabinoids/terpenes count as useful input even if there is no purchase total. Create one item per product, use price null when no price is visible, and set vendor to Dutch Love or the visible brand/store when present.
 - "unit" must be one of: oz, lb, g, kg, mg, fl_oz, ml, l, gal, qt, pt, cup, tbsp, tsp, count, dozen, pack. Map any other unit to its closest equivalent. If the receipt does not specify a unit, default to "count".
 - "quantity" must be a positive number. Default to 1 if not specified.
+- "category" must be one of: food, drink, cannabis, supplement, household, personal_care, other. Use "cannabis" for any item with cannabinoids/terpenes. Use "drink" for beverages (water, juice, soda, milk, coffee, tea, beer, wine, etc.), "supplement" for vitamins/supplements, "household" for cleaning/paper/non-ingestible goods, "personal_care" for toiletries/cosmetics, and "food" for everything edible. Use "other" only when genuinely unclear.
 - "raw_name" is the item name exactly as it appears on the receipt (preserve brand if shown). Do NOT clean or normalize the name — that happens later.
 - "price" is the total price for that line item (quantity x unit price), not the unit price. Use null if not visible.
 - For cannabis products or cannabis labels (for example Dutch Love), capture visible THC, CBD, CBN, CBG, THCA, CBDA, total THC/CBD, package grams, and terpene values in "active_ingredients". Use mg when the label gives mg; use percent fields when it gives %. If a terpene name and amount/percent is visible, include it in "terpenes". Use null active_ingredients for ordinary groceries.

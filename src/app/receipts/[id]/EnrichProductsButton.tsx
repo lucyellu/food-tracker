@@ -20,7 +20,12 @@ export function EnrichProductsButton({ receiptId }: { receiptId: number }) {
         return;
       }
       const skipped = data.skipped ? `, skipped ${data.skipped}` : "";
-      setMessage(`Linked ${data.linked}, fallback links ${data.fallbackLinks}, failed ${data.failed}${skipped}.`);
+      const openFoodFacts = data.openFoodFactsLinked
+        ? `, Open Food Facts ${data.openFoodFactsLinked}${data.openFoodFactsNutrition ? ` with nutrition ${data.openFoodFactsNutrition}` : ""}`
+        : "";
+      setMessage(
+        `Linked ${data.linked}, fallback links ${data.fallbackLinks}, failed ${data.failed}${openFoodFacts}${skipped}.`,
+      );
       router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));

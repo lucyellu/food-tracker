@@ -54,6 +54,7 @@ export function parseTntPackedOrderEmail(text: string): ParsedReceipt | null {
       quantity,
       unit,
       price: Number(priceMatch[1]),
+      category: null,
       active_ingredients: null,
     });
     i = amountLabelIndex + 1;
@@ -65,7 +66,7 @@ export function parseTntPackedOrderEmail(text: string): ParsedReceipt | null {
 
   return {
     is_receipt: items.length > 0,
-    vendor: orderNumber ? `T&T Shop Online - Order #${orderNumber}` : "T&T Shop Online",
+    vendor: "T&T Supermarket",
     purchased_at: purchasedAt ? new Date(purchasedAt).toISOString().slice(0, 10) : null,
     total: total ? Number(total) : null,
     items,

@@ -110,3 +110,60 @@ export function resolveReceiptPurchasedDate(
 ) {
   return normalizeReceiptDate(parsedPurchasedAt) ?? inferPurchasedDateFromText(rawInputRef);
 }
+
+function isoOnly(value: string | null | undefined) {
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function addDays(iso: string, days: number) {
+  const date = new Date(`${iso}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(startIso: string, endIso: string) {
+  const start = new Date(`${startIso}T00:00:00.000Z`).getTime();
+  const end = new Date(`${endIso}T00:00:00.000Z`).getTime();
+  return Math.round((end - start) / 86_400_000);
+}
+
+export type ConsumptionWindow = {
+  days: number;
+  start: string | null;
+  end: string | null;
+  nextVendorDate: string | null;
+  cappedBy: "vendor" | "7d";
+};
+
+// A consumable is treated as consumed by whichever comes first: the next
+// purchase from the same vendor, or `maxDays` (7) after this purchase.
+// `sameVendorDates` are the purchasedAt values of OTHER receipts from the same
+// vendor (the caller matches vendors via vendorCatalogKey).
+export function computeConsumptionWindow(
+  purchasedAt: string | null | undefined,
+  sameVendorDates: Array<string | null | undefined>,
+  maxDays = 7,
+): ConsumptionWindow {
+  const start = isoOnly(purchasedAt);
+  if (!start) {
+    return { days: maxDays, start: null, end: null, nextVendorDate: null, cappedBy: "7d" };
+  }
+
+  const nextVendorDate = sameVendorDates
+    .map(isoOnly)
+    .filter((d): d is string => Boolean(d && d > start))
+    .sort()[0] ?? null;
+
+  let days = maxDays;
+  let cappedBy: "vendor" | "7d" = "7d";
+  if (nextVendorDate) {
+    const gap = daysBetween(start, nextVendorDate);
+    if (gap >= 1 && gap < maxDays) {
+      days = gap;
+      cappedBy = "vendor";
+    }
+  }
+  days = Math.min(Math.max(days, 1), maxDays);
+
+  return { days, start, end: addDays(start, days), nextVendorDate, cappedBy };
+}

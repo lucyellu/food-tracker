@@ -42,6 +42,7 @@ function parseItems(sectionLines: string[]) {
       quantity: Number(quantityPart[1]),
       unit: "count",
       price: null,
+      category: null,
       active_ingredients: null,
     });
   }
@@ -75,7 +76,7 @@ export function parsePriceSmartOrderText(text: string): ParsedReceipt | null {
 
   return {
     is_receipt: true,
-    vendor: orderNumber ? `PriceSmart Foods - Order #${orderNumber}` : "PriceSmart Foods",
+    vendor: "PriceSmart Foods",
     purchased_at: normalizeReceiptDate(dateText),
     total,
     items,

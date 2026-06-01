@@ -1,11 +1,13 @@
 type EmailScanProgressProps = {
   label?: string;
   detail?: string;
+  progress?: number | null;
 };
 
 export function EmailScanProgress({
   label = "Scanning inboxes...",
   detail = "Reading messages, attachments, and likely receipt bodies.",
+  progress,
 }: EmailScanProgressProps) {
   return (
     <div className="space-y-2" role="status" aria-live="polite">
@@ -16,7 +18,14 @@ export function EmailScanProgress({
         <span>{detail}</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
-        <div className="h-full w-2/3 animate-pulse rounded-full bg-zinc-900 dark:bg-zinc-100" />
+        {progress != null ? (
+          <div
+            className="h-full rounded-full bg-zinc-900 transition-all duration-500 dark:bg-zinc-100"
+            style={{ width: `${Math.min(98, Math.round(progress * 100))}%` }}
+          />
+        ) : (
+          <div className="h-full w-2/3 animate-pulse rounded-full bg-zinc-900 dark:bg-zinc-100" />
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ setlocal
 
 set PORT=3000
 set DIR=%~dp0
-set APP_URL=http://localhost:%PORT%/receipts/1
+set APP_URL=http://localhost:%PORT%/receipts
 
 netstat -ano | findstr ":%PORT% " | findstr "LISTENING" >nul 2>&1
 if %errorlevel% == 0 (

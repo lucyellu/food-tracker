@@ -1,6 +1,7 @@
 import { parseWithDeepSeek } from "./deepseek";
 import { parseWithGemini, parseGeminiText } from "./gemini";
 import type { ParsedReceipt } from "./schema";
+import { isRateLimitError } from "./errors";
 import {
   extractTextWithGoogleVision,
   isGoogleVisionOcrConfigured,
@@ -14,10 +15,23 @@ export type ParseInput =
   | { kind: "image"; bytes: Uint8Array; mimeType: string }
   | { kind: "pdf"; bytes: Uint8Array };
 
-// Text path: default to Gemini Flash (faster on 30+ line items, free tier covers
-// personal use), with DeepSeek as a fallback if Gemini errors. Image path: Google
-// Cloud Vision OCR → text parser (no Gemini vision). PDF path: Gemini vision.
+// Text path: default to Gemini Flash (free tier), circuit-break to DeepSeek when
+// Gemini rate-limits. Image path: Google Cloud Vision OCR → text parser. PDF path:
+// Gemini vision (no text alternative).
 const USE_DEEPSEEK = process.env.PREFER_DEEPSEEK === "true";
+
+// Circuit breaker: after a Gemini 429, skip Gemini for 60 s so the rest of the
+// batch goes straight to DeepSeek instead of retrying Gemini on every email.
+let geminiCircuitOpenUntil = 0;
+
+function geminiCircuitOpen() {
+  return Date.now() < geminiCircuitOpenUntil;
+}
+
+function tripGeminiCircuit() {
+  geminiCircuitOpenUntil = Date.now() + 60_000;
+  console.warn("Gemini rate-limited — routing to DeepSeek for 60 s");
+}
 
 async function parseTextReceipt(text: string): Promise<ParsedReceipt> {
   const tntReceipt = parseTntPackedOrderEmail(text);
@@ -29,19 +43,15 @@ async function parseTextReceipt(text: string): Promise<ParsedReceipt> {
   const uberEatsReceipt = parseUberEatsOrderText(text);
   if (uberEatsReceipt) return uberEatsReceipt;
 
-  if (USE_DEEPSEEK) {
+  if (USE_DEEPSEEK || geminiCircuitOpen()) {
     return parseWithDeepSeek(text);
   }
   try {
     return await parseGeminiText(text);
   } catch (e) {
-    // Fall back to DeepSeek if Gemini errored (rate limit, network blip, etc.)
-    // and we have a DeepSeek key configured.
+    if (isRateLimitError(e)) tripGeminiCircuit();
     if (process.env.DEEPSEEK_API_KEY) {
-      console.warn(
-        "Gemini text parse failed, falling back to DeepSeek:",
-        (e as Error).message,
-      );
+      console.warn("Gemini failed, falling back to DeepSeek:", (e as Error).message);
       return parseWithDeepSeek(text);
     }
     throw e;
@@ -68,7 +78,17 @@ export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
     return parseTextReceipt(ocrText);
   }
   // PDFs can't be OCR'd inline by the Vision sync API, so they still use Gemini.
-  return parseWithGemini(input.bytes, "application/pdf");
+  // If Gemini rate-limits, trip the circuit (so future text emails route to DeepSeek)
+  // but surface a plain error so the batch scan doesn't stop.
+  try {
+    return await parseWithGemini(input.bytes, "application/pdf");
+  } catch (e) {
+    if (isRateLimitError(e)) {
+      tripGeminiCircuit();
+      throw new Error("PDF skipped: Gemini is rate-limited and PDFs have no text fallback.");
+    }
+    throw e;
+  }
 }
 
 export { ParsedReceiptSchema, type ParsedReceipt } from "./schema";

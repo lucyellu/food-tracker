@@ -19,8 +19,9 @@ export function EnrichNutritionButton({ receiptId }: { receiptId: number }) {
         setMessage(data.error ?? `Nutrition lookup failed: ${res.status}`);
         return;
       }
+      const openFoodFacts = data.openFoodFacts ? `, ${data.openFoodFacts} from Open Food Facts` : "";
       setMessage(
-        `Matched ${data.matched}, unmatched ${data.unmatched}, skipped ${data.skippedRefunded} refunded.`,
+        `Matched ${data.matched}${openFoodFacts}, unmatched ${data.unmatched}, skipped ${data.skippedRefunded} refunded.`,
       );
       router.refresh();
     } catch (e) {
