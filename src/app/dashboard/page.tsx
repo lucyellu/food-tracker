@@ -91,9 +91,9 @@ const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
 ];
 
 const PIVOT_OPTIONS: Array<{ key: PivotMode; label: string; hint: string }> = [
-  { key: "time", label: "Time", hint: "Stretch receipts over a set number of days." },
+  { key: "budget", label: "$", hint: "Compare spending against a monthly food budget." },
   { key: "calories", label: "Calories", hint: "Estimate how long receipts last at a daily calorie target." },
-  { key: "budget", label: "Budget", hint: "Compare spending against a monthly food budget." },
+  { key: "time", label: "Days", hint: "Stretch receipts over a set number of days." },
 ];
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -891,6 +891,75 @@ function KpiCard({
   );
 }
 
+function pivotIcon(mode: PivotMode) {
+  if (mode === "budget") return <ShoppingBasket className="size-4" />;
+  if (mode === "calories") return <Utensils className="size-4" />;
+  return <CalendarDays className="size-4" />;
+}
+
+function PivotLinks({
+  range,
+  pivot,
+  anchorDays,
+  dailyCalories,
+  monthlyBudget,
+  start,
+  end,
+  variant = "compact",
+}: {
+  range: RangeKey;
+  pivot: PivotMode;
+  anchorDays: number;
+  dailyCalories: number;
+  monthlyBudget: number;
+  start: string;
+  end: string;
+  variant?: "compact" | "section";
+}) {
+  return (
+    <div
+      className={
+        variant === "section"
+          ? "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap"
+          : "flex w-full flex-wrap rounded-lg border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900 sm:inline-flex sm:w-auto"
+      }
+    >
+      {PIVOT_OPTIONS.map((option) => (
+        <Link
+          key={option.key}
+          href={dashboardHref({
+            range,
+            pivot: option.key,
+            anchorDays,
+            dailyCalories,
+            monthlyBudget,
+            start,
+            end,
+          })}
+          prefetch={false}
+          title={option.hint}
+          className={
+            variant === "section"
+              ? `inline-flex min-w-0 items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-center text-sm font-medium ${
+                  pivot === option.key
+                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
+                    : "border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                }`
+              : `inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-center text-sm font-medium sm:flex-none ${
+                  pivot === option.key
+                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                    : "text-zinc-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                }`
+          }
+        >
+          <span className="hidden sm:inline-flex">{pivotIcon(option.key)}</span>
+          <span>{option.label}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 function SectionHeader({
   title,
   href,
@@ -1208,6 +1277,15 @@ export default async function DashboardPage({
               </Link>
             ))}
           </div>
+          <PivotLinks
+            range={range}
+            pivot={pivot}
+            anchorDays={anchorDays}
+            dailyCalories={dailyCalories}
+            monthlyBudget={monthlyBudget}
+            start={start}
+            end={end}
+          />
           <form
             action="/dashboard"
             className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:w-auto"
@@ -1296,31 +1374,16 @@ export default async function DashboardPage({
                   Choose the anchor that makes the receipt data easiest to reason about.
                 </p>
               </div>
-              <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-                {PIVOT_OPTIONS.map((option) => (
-                  <Link
-                    key={option.key}
-                    href={dashboardHref({
-                      range,
-                      pivot: option.key,
-                      anchorDays,
-                      dailyCalories,
-                      monthlyBudget,
-                      start,
-                      end,
-                    })}
-                    prefetch={false}
-                    title={option.hint}
-                    className={`rounded-md border px-3 py-2 text-center text-sm font-medium ${
-                      pivot === option.key
-                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900"
-                        : "border-zinc-200 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                    }`}
-                  >
-                    {option.label}
-                  </Link>
-                ))}
-              </div>
+              <PivotLinks
+                range={range}
+                pivot={pivot}
+                anchorDays={anchorDays}
+                dailyCalories={dailyCalories}
+                monthlyBudget={monthlyBudget}
+                start={start}
+                end={end}
+                variant="section"
+              />
             </div>
             <div className="grid gap-4 p-4 xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,1.3fr)]">
               <div className="space-y-3">
