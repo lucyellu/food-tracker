@@ -1,6 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { isReusableSkipReason, obviousNonInventoryReason } from "@/lib/email/receipt-filter";
 import { parseReceipt } from "@/lib/llm/parse";
 import { conciseParseError, isRateLimitError } from "@/lib/llm/errors";
 import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
@@ -141,11 +142,7 @@ async function findPriorSkippedCandidate(messageId: string) {
     .limit(1);
 
   if (prior?.status !== "skipped_not_receipt") return null;
-  const errorText = prior.errorText ?? "";
-  const reusable =
-    prior.receiptId != null ||
-    /did not look like a receipt|No readable|No matching|Duplicate/i.test(errorText);
-  return reusable ? prior : null;
+  return prior.receiptId != null || isReusableSkipReason(prior.errorText) ? prior : null;
 }
 
 function parseImapOffset(pageToken: string | null | undefined) {
@@ -217,20 +214,36 @@ export async function processImapAccount(
           }
 
           const parsedEmail = await candidatesFromRawEmail(message.source);
-          const candidates = parsedEmail.candidates.filter((candidate) => matchesMerchant(candidate.text, merchant));
+          const merchantCandidates = parsedEmail.candidates.filter((candidate) => matchesMerchant(candidate.text, merchant));
+          const candidates = [];
+          let skipReason: string | null = null;
+          for (const candidate of merchantCandidates) {
+            const reason = obviousNonInventoryReason({
+              fromAddress: parsedEmail.fromAddress,
+              subject: parsedEmail.subject,
+              text: candidate.text,
+              merchant,
+            });
+            if (reason) {
+              skipReason = reason;
+              continue;
+            }
+            candidates.push(candidate);
+          }
           result.candidates += candidates.length;
           result.attachments += candidates.filter((candidate) => candidate.id !== "body").length;
 
           if (candidates.length === 0) {
             result.skipped += 1;
-            result.skippedNoCandidates += 1;
+            if (skipReason) result.skippedNotReceipt += 1;
+            else result.skippedNoCandidates += 1;
             await logEmailIngest({
               emailAccountId: connection.accountId,
               fromAddress: parsedEmail.fromAddress,
               subject: parsedEmail.subject,
               messageId: baseMessageId,
               status: "skipped_not_receipt",
-              errorText: "No matching readable receipt body or supported attachment found",
+              errorText: skipReason ?? "No matching readable receipt body or supported attachment found",
             });
             continue;
           }
@@ -352,8 +365,12 @@ export async function processImapAccount(
             // Candidate-level skipped rows already record the reason.
           }
         } catch (error) {
+          if (isRateLimitError(error)) {
+            result.rateLimited = true;
+            result.nextPageToken = pageToken ?? null;
+            break;
+          }
           result.failed += 1;
-          if (isRateLimitError(error)) result.rateLimited = true;
           await logEmailIngest({
             emailAccountId: connection.accountId,
             messageId: baseMessageId,
@@ -362,10 +379,6 @@ export async function processImapAccount(
             status: "failed",
             errorText: conciseParseError(error),
           });
-          if (isRateLimitError(error)) {
-            result.nextPageToken = pageToken ?? null;
-            break;
-          }
         }
       }
     } finally {

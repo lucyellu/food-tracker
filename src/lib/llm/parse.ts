@@ -1,3 +1,9 @@
+import {
+  isAiFreeConfigured,
+  isAiFreeMediaConfigured,
+  parseAiFreeText,
+  parseWithAiFree,
+} from "./ai-free";
 import { parseWithDeepSeek } from "./deepseek";
 import { parseWithGemini, parseGeminiText } from "./gemini";
 import type { ParsedReceipt } from "./schema";
@@ -15,9 +21,10 @@ export type ParseInput =
   | { kind: "image"; bytes: Uint8Array; mimeType: string }
   | { kind: "pdf"; bytes: Uint8Array };
 
-// Text path: default to Gemini Flash (free tier), circuit-break to DeepSeek when
-// Gemini rate-limits. Image path: Google Cloud Vision OCR → text parser. PDF path:
-// Gemini vision (no text alternative).
+// Text path: procedural parsers first, then free OpenAI-compatible providers
+// (Cerebras/Groq/local gateway), then Gemini Flash, with DeepSeek as an explicit
+// preference or fallback. Image path: Google Cloud Vision OCR → text parser. PDF
+// path: Gemini vision unless a local AI-free gateway explicitly handles media.
 const USE_DEEPSEEK = process.env.PREFER_DEEPSEEK === "true";
 
 // Circuit breaker: after a Gemini 429, skip Gemini for 60 s so the rest of the
@@ -43,9 +50,22 @@ async function parseTextReceipt(text: string): Promise<ParsedReceipt> {
   const uberEatsReceipt = parseUberEatsOrderText(text);
   if (uberEatsReceipt) return uberEatsReceipt;
 
-  if (USE_DEEPSEEK || geminiCircuitOpen()) {
+  if (USE_DEEPSEEK) {
     return parseWithDeepSeek(text);
   }
+
+  if (isAiFreeConfigured()) {
+    try {
+      return await parseAiFreeText(text);
+    } catch (e) {
+      console.warn("AI Free failed, falling back to Gemini/DeepSeek:", (e as Error).message);
+    }
+  }
+
+  if (geminiCircuitOpen() && process.env.DEEPSEEK_API_KEY) {
+    return parseWithDeepSeek(text);
+  }
+
   try {
     return await parseGeminiText(text);
   } catch (e) {
@@ -81,6 +101,13 @@ export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
   // If Gemini rate-limits, trip the circuit (so future text emails route to DeepSeek)
   // but surface a plain error so the batch scan doesn't stop.
   try {
+    if (isAiFreeMediaConfigured("application/pdf")) {
+      try {
+        return await parseWithAiFree(input.bytes, "application/pdf");
+      } catch (e) {
+        console.warn("AI Free PDF parse failed, falling back to Gemini:", (e as Error).message);
+      }
+    }
     return await parseWithGemini(input.bytes, "application/pdf");
   } catch (e) {
     if (isRateLimitError(e)) {

@@ -699,8 +699,8 @@ export function SettingsGmailPanel() {
       ) : null}
 
       {accounts.length > 0 ? (
-        <div className="mt-4 overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
+        <div className="mt-4 overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
+          <table className="w-full min-w-[510px] text-sm">
             <thead className="bg-zinc-50 text-left text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-400">
               <tr>
                 <th className="px-3 py-2 font-medium">Inbox</th>
@@ -721,7 +721,7 @@ export function SettingsGmailPanel() {
                         type="button"
                         onClick={() => void syncInbox(merchant, account.id)}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                        className="inline-flex h-9 items-center gap-1 rounded-md border border-zinc-200 px-2 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
                       >
                         <RefreshCw className="h-3.5 w-3.5" />
                         Sync
@@ -730,7 +730,7 @@ export function SettingsGmailPanel() {
                         type="button"
                         onClick={() => void removeAccount(account.id)}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                        className="inline-flex h-9 items-center gap-1 rounded-md border border-rose-200 px-2 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         Remove

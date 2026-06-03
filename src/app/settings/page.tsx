@@ -1,5 +1,6 @@
 import { SettingsGmailPanel } from "./SettingsGmailPanel";
 import { SettingsDataPanel } from "./SettingsDataPanel";
+import { SettingsTimezonePanel } from "./SettingsTimezonePanel";
 
 export default function SettingsPage() {
   return (
@@ -11,6 +12,7 @@ export default function SettingsPage() {
           or a fresh database.
         </p>
       </div>
+      <SettingsTimezonePanel />
       <SettingsGmailPanel />
       <SettingsDataPanel />
     </div>

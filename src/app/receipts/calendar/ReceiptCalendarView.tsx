@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Coffee, Search, ShoppingBag, Utensils, Wine } from "lucide-react";
 import { useMemo, useState } from "react";
 import { receiptDedupeSignature } from "@/lib/receipts/signature";
+import { todayIsoInTimeZone } from "@/lib/timezone";
 
 type DateMode = "bought" | "estimated";
 type EstimateCategory = "food" | "controlled" | "alcohol" | "caffeine";
@@ -138,10 +139,6 @@ const ACTIVE_ITEM_SIGNAL_RE =
   /\b(dutch\s*love|thc|cbd|cbn|cbg|pre[-\s]?roll|preroll|flower|indica|sativa|hybrid|rosin|hash|vape|cart|edible|gumm(?:y|ies)|joint)\b/i;
 const ALCOHOL_ITEM_SIGNAL_RE = /\b(beer|wine|cider|vodka|gin|rum|whisk(?:y|ey)|tequila|liqueur|cocktail|cooler|seltzer)\b/i;
 const CAFFEINE_ITEM_SIGNAL_RE = /\b(coffee|espresso|latte|tea|matcha|yerba|energy\s*drink|caffeine)\b/i;
-
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function datePart(value: string | null | undefined) {
   if (!value) return null;
@@ -606,17 +603,20 @@ function summaryCardClasses(count: number) {
 export function ReceiptCalendarView({
   receipts,
   items,
+  timeZone,
 }: {
   receipts: CalendarReceipt[];
   items: CalendarItem[];
+  timeZone: string;
 }) {
   const [mode, setMode] = useState<DateMode>("bought");
+  const today = todayIsoInTimeZone(timeZone);
   const latestBoughtDate = receipts
     .map((receipt) => datePart(receipt.purchasedAt))
     .filter((date): date is string => Boolean(date))
     .sort()
     .at(-1);
-  const [cursor, setCursor] = useState(monthStartIso(latestBoughtDate ?? todayIso()));
+  const [cursor, setCursor] = useState(monthStartIso(latestBoughtDate ?? today));
   const [search, setSearch] = useState("");
   const [categoryFilters, setCategoryFilters] = useState<CategoryFilters>(DEFAULT_CATEGORY_FILTERS);
   const [hiddenVendorKeys, setHiddenVendorKeys] = useState<Set<string>>(new Set());
@@ -771,7 +771,7 @@ export function ReceiptCalendarView({
     .filter((interval) => interval.projected)
     .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
   const projectedDaysRemaining = currentProjectedInterval
-    ? Math.max(daysBetween(todayIso(), currentProjectedInterval.endDate) + 1, 0)
+    ? Math.max(daysBetween(today, currentProjectedInterval.endDate) + 1, 0)
     : 0;
   const undatedReceipts = boughtDedupe.undated.filter((receipt) =>
     eventMatchesSearch({ id: `undated-${receipt.id}`, kind: "receipt", receipt, duplicateCount: 0, date: "" }, query),
@@ -880,21 +880,21 @@ export function ReceiptCalendarView({
           <h1 className="mt-2 text-2xl font-semibold">Receipt calendar</h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+          <div className="relative w-full sm:w-auto">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
             <input
               type="search"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search"
-              className="h-10 w-48 rounded-md border border-zinc-200 bg-white pl-8 pr-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+              className="h-10 w-full rounded-md border border-zinc-200 bg-white pl-8 pr-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 sm:w-48"
             />
           </div>
           <button
             type="button"
             onClick={() => setMode("bought")}
-            className={`inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium ${modeClasses(mode === "bought")}`}
+            className={`inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium sm:flex-none ${modeClasses(mode === "bought")}`}
           >
             <ShoppingBag className="size-4" />
             Bought
@@ -902,7 +902,7 @@ export function ReceiptCalendarView({
           <button
             type="button"
             onClick={() => setMode("estimated")}
-            className={`inline-flex h-10 items-center gap-2 rounded-md border px-3 text-sm font-medium ${modeClasses(mode === "estimated")}`}
+            className={`inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium sm:flex-none ${modeClasses(mode === "estimated")}`}
           >
             <Utensils className="size-4" />
             Estimated
@@ -982,7 +982,7 @@ export function ReceiptCalendarView({
             </button>
             <button
               type="button"
-              onClick={() => setCursor(monthStartIso(todayIso()))}
+              onClick={() => setCursor(monthStartIso(today))}
               className="h-9 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
             >
               Today
@@ -998,7 +998,90 @@ export function ReceiptCalendarView({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="grid gap-2 p-3 md:hidden">
+          {days
+            .filter((day) => day.slice(0, 7) === selectedMonth)
+            .map((day) => {
+              const dayEvents = eventsByDate.get(day) ?? [];
+              const isToday = day === today;
+              const total = dayEvents.reduce(
+                (sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0),
+                0,
+              );
+              const dayEstimateTotals = mode === "estimated" ? eventsTotals(dayEvents) : emptyTotals();
+              const dayActiveLine = activeLine(dayEstimateTotals);
+              if (!isToday && dayEvents.length === 0 && !hasEstimateValue(dayEstimateTotals)) return null;
+              return (
+                <div
+                  key={day}
+                  className={`rounded-md border p-3 ${
+                    isToday
+                      ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                      : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">{formatDate(day)}</div>
+                      {mode === "bought" && total > 0 ? (
+                        <div className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">{formatMoney(total)}</div>
+                      ) : null}
+                      {mode === "estimated" && hasEstimateValue(dayEstimateTotals) ? (
+                        <div className="mt-1 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
+                          {dayEstimateTotals.price > 0 ? <div className="font-medium">{formatMoney(dayEstimateTotals.price)}/day</div> : null}
+                          {dayEstimateTotals.calories > 0 ? (
+                            <div>
+                              {formatMetric(dayEstimateTotals.calories)} cal · P {formatMetric(dayEstimateTotals.proteinG)}g
+                            </div>
+                          ) : null}
+                          {dayEstimateTotals.activeGrams > 0 ? <div>Active {formatActiveGrams(dayEstimateTotals.activeGrams)}</div> : null}
+                          {dayEstimateTotals.alcoholG > 0 ? <div>Alc {formatAlcoholOz(dayEstimateTotals.alcoholG)}</div> : null}
+                          {dayEstimateTotals.caffeineMg > 0 ? <div>Caff {formatMg(dayEstimateTotals.caffeineMg)}</div> : null}
+                          {dayActiveLine ? <div>{dayActiveLine}</div> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                      {isToday ? "Today" : dayEvents.length}
+                    </span>
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    {dayEvents.slice(0, 5).map((event) =>
+                      event.kind === "receipt" ? (
+                        <Link
+                          key={event.id}
+                          href={`/receipts/${event.receipt.id}`}
+                          className="block rounded border border-zinc-200 px-2 py-1.5 text-xs hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                        >
+                          <span className="font-medium">{event.receipt.vendor ?? "Unknown"}</span>{" "}
+                          {formatMoney(event.receipt.total)}
+                          {event.duplicateCount > 0 ? ` (${event.duplicateCount + 1} emails)` : ""}
+                        </Link>
+                      ) : (
+                        <Link
+                          key={event.id}
+                          href={`/receipts/${event.interval.receipt.id}`}
+                          className="block rounded border border-zinc-200 px-2 py-1.5 text-xs hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                        >
+                          <span className="font-medium">{event.interval.vendorLabel}</span> {dailyBrief(event.totals)}
+                        </Link>
+                      ),
+                    )}
+                    {dayEvents.length > 5 ? (
+                      <div className="px-2 text-xs text-zinc-500">+{dayEvents.length - 5} more</div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          {monthEvents.length === 0 && !(today.slice(0, 7) === selectedMonth) ? (
+            <div className="rounded-md border border-dashed border-zinc-200 px-3 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
+              No matching calendar entries this month.
+            </div>
+          ) : null}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <div className="min-w-[880px] p-3">
             <div className="grid grid-cols-7 gap-2 pb-2 text-xs font-medium uppercase text-zinc-500">
               {WEEKDAYS.map((weekday) => (
@@ -1011,6 +1094,7 @@ export function ReceiptCalendarView({
               {days.map((day) => {
                 const dayEvents = eventsByDate.get(day) ?? [];
                 const outsideMonth = day.slice(0, 7) !== selectedMonth;
+                const isToday = day === today;
                 const total = dayEvents.reduce(
                   (sum, event) => sum + (event.kind === "receipt" ? event.receipt.total ?? 0 : 0),
                   0,
@@ -1024,7 +1108,7 @@ export function ReceiptCalendarView({
                       outsideMonth
                         ? "border-zinc-100 bg-zinc-50 text-zinc-400 dark:border-zinc-900 dark:bg-zinc-950"
                         : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900"
-                    }`}
+                    } ${isToday ? "ring-2 ring-emerald-500 ring-offset-2 ring-offset-white dark:ring-offset-zinc-950" : ""}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-medium">{Number(day.slice(8, 10))}</span>
@@ -1173,7 +1257,7 @@ export function ReceiptCalendarView({
               <tbody>
                 {intervalRows.map((interval) => {
                   const intervalActiveLine = activeLine(interval.daily);
-                  const daysLeft = Math.max(daysBetween(todayIso(), interval.endDate) + 1, 0);
+                  const daysLeft = Math.max(daysBetween(today, interval.endDate) + 1, 0);
                   return (
                     <tr key={interval.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
                       <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">

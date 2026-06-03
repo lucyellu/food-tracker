@@ -4,6 +4,7 @@ import { parse as parseHtml } from "node-html-parser";
 import { db, schema } from "@/db/client";
 import { parseReceipt, type ParseInput } from "@/lib/llm/parse";
 import { conciseParseError, isRateLimitError } from "@/lib/llm/errors";
+import { isReusableSkipReason, obviousNonInventoryReason } from "@/lib/email/receipt-filter";
 import { findDuplicateParsedReceipt } from "@/lib/receipts/dedupe";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
@@ -362,11 +363,7 @@ async function findPriorSkippedCandidate(messageId: string) {
     .limit(1);
 
   if (prior?.status !== "skipped_not_receipt") return null;
-  const errorText = prior.errorText ?? "";
-  const reusable =
-    prior.receiptId != null ||
-    /did not look like a receipt|No readable|No matching|Duplicate/i.test(errorText);
-  return reusable ? prior : null;
+  return prior.receiptId != null || isReusableSkipReason(prior.errorText) ? prior : null;
 }
 
 export async function processGmailInbox(maxResults = 10): Promise<GmailSyncResult> {
@@ -473,24 +470,41 @@ export async function processGmailAccount(
         format: "full",
       });
       const candidates = await extractReceiptCandidates(message, accessToken);
-      result.candidates += candidates.length;
-      result.attachments += candidates.filter((candidate) => candidate.id !== "body").length;
-      if (candidates.length === 0) {
+      const filteredCandidates: ReceiptCandidate[] = [];
+      let skipReason: string | null = null;
+      for (const candidate of candidates) {
+        const reason = obviousNonInventoryReason({
+          fromAddress: getHeader(message, "From"),
+          subject: getHeader(message, "Subject"),
+          text: candidate.text,
+          merchant: preset.id,
+        });
+        if (reason) {
+          skipReason = reason;
+          continue;
+        }
+        filteredCandidates.push(candidate);
+      }
+
+      result.candidates += filteredCandidates.length;
+      result.attachments += filteredCandidates.filter((candidate) => candidate.id !== "body").length;
+      if (filteredCandidates.length === 0) {
         result.skipped += 1;
-        result.skippedNoCandidates += 1;
+        if (skipReason) result.skippedNotReceipt += 1;
+        else result.skippedNoCandidates += 1;
         await logEmailIngest({
           emailAccountId: connection.accountId,
           fromAddress: getHeader(message, "From"),
           subject: getHeader(message, "Subject"),
           messageId: scopedGmailSourceId(connection, item.id),
           status: "skipped_not_receipt",
-          errorText: "No readable email body or supported receipt attachment found",
+          errorText: skipReason ?? "No readable email body or supported receipt attachment found",
         });
         continue;
       }
 
       let parsedAny = false;
-      for (const candidate of candidates) {
+      for (const candidate of filteredCandidates) {
         const rawCandidateMessageId =
           candidate.id === "body" ? item.id : `${item.id}:${candidate.id}`;
         const candidateMessageId = scopedGmailSourceId(connection, rawCandidateMessageId);
@@ -603,12 +617,16 @@ export async function processGmailAccount(
         break;
       }
 
-      if (!parsedAny && candidates.length > 0) {
+      if (!parsedAny && filteredCandidates.length > 0) {
         // Candidate-level skipped/failed rows already record the reason.
       }
     } catch (e) {
+      if (isRateLimitError(e)) {
+        result.rateLimited = true;
+        result.nextPageToken = pageToken ?? null;
+        break;
+      }
       result.failed += 1;
-      if (isRateLimitError(e)) result.rateLimited = true;
       await logEmailIngest({
         emailAccountId: connection.accountId,
         fromAddress: message ? getHeader(message, "From") : null,
@@ -617,10 +635,6 @@ export async function processGmailAccount(
         status: "failed",
         errorText: conciseParseError(e),
       });
-      if (isRateLimitError(e)) {
-        result.nextPageToken = pageToken ?? null;
-        break;
-      }
     }
   }
 

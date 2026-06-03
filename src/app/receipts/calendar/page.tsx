@@ -1,4 +1,5 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { db, schema } from "@/db/client";
 import {
   ReceiptCalendarView,
@@ -6,6 +7,7 @@ import {
   type CalendarReceipt,
 } from "./ReceiptCalendarView";
 import { inferPurchasedDateFromText, normalizeReceiptDate } from "@/lib/receipts/dates";
+import { TIME_ZONE_COOKIE, timeZoneFromCookie } from "@/lib/timezone";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +103,9 @@ async function getCalendarData() {
 }
 
 export default async function ReceiptCalendarPage() {
+  const cookieStore = await cookies();
+  const timeZone = timeZoneFromCookie(cookieStore.get(TIME_ZONE_COOKIE)?.value);
   const data = await getCalendarData();
 
-  return <ReceiptCalendarView receipts={data.receipts} items={data.items} />;
+  return <ReceiptCalendarView receipts={data.receipts} items={data.items} timeZone={timeZone} />;
 }

@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { db, schema } from "@/db/client";
+import { isRateLimitError } from "@/lib/llm/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 75, 1), 200);
+    const queryLimit = Math.min(limit * 3, 500);
     const rows = await db
       .select({
         id: schema.emailIngestLog.id,
@@ -25,13 +27,16 @@ export async function GET(req: NextRequest) {
       .from(schema.emailIngestLog)
       .leftJoin(schema.emailAccounts, eq(schema.emailAccounts.id, schema.emailIngestLog.emailAccountId))
       .orderBy(desc(schema.emailIngestLog.id))
-      .limit(limit);
+      .limit(queryLimit);
 
     return NextResponse.json({
-      rows: rows.map((row) => ({
-        ...row,
-        receivedAt: row.receivedAt.toISOString(),
-      })),
+      rows: rows
+        .filter((row) => row.status !== "failed" || !isRateLimitError(row.errorText))
+        .slice(0, limit)
+        .map((row) => ({
+          ...row,
+          receivedAt: row.receivedAt.toISOString(),
+        })),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
