@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { mergeCatalogFieldsIntoLineItem } from "@/lib/products/catalog";
 
 export const runtime = "nodejs";
@@ -79,6 +80,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     .returning();
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  revalidateFoodDataCache();
   return NextResponse.json({ receipt: updated });
 }
 
@@ -89,5 +91,6 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
   await db.delete(schema.receipts).where(eq(schema.receipts.id, receiptId));
+  revalidateFoodDataCache();
   return NextResponse.json({ ok: true });
 }

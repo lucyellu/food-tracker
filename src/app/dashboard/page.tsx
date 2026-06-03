@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
+import { unstable_cache } from "next/cache";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import {
   AlertTriangle,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import { VendorMark } from "@/components/VendorMark";
 import { db, schema } from "@/db/client";
+import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import { isRateLimitError } from "@/lib/llm/errors";
 import { TIME_ZONE_COOKIE, timeZoneFromCookie, todayIsoInTimeZone } from "@/lib/timezone";
 import {
@@ -417,7 +419,7 @@ async function getDashboardRows() {
         purchasedAt: schema.receipts.purchasedAt,
         total: schema.receipts.total,
         source: schema.receipts.source,
-        rawInputRef: schema.receipts.rawInputRef,
+        rawInputRef: sql<string | null>`null`,
         parseStatus: schema.receipts.parseStatus,
         parseError: schema.receipts.parseError,
         createdAt: schema.receipts.createdAt,
@@ -445,7 +447,7 @@ async function getDashboardRows() {
         nutritionStatus: schema.lineItems.nutritionStatus,
         receiptVendor: schema.receipts.vendor,
         receiptPurchasedAt: schema.receipts.purchasedAt,
-        receiptRawInputRef: schema.receipts.rawInputRef,
+        receiptRawInputRef: sql<string | null>`null`,
         receiptCreatedAt: schema.receipts.createdAt,
         catalogName: schema.productCatalog.displayName,
         catalogCategory: schema.productCatalog.category,
@@ -489,6 +491,11 @@ async function getDashboardRows() {
       .limit(25),
   ]);
 }
+
+const getCachedDashboardRows = unstable_cache(getDashboardRows, ["dashboard-rows"], {
+  tags: [FOOD_DATA_CACHE_TAG],
+  revalidate: FOOD_DATA_CACHE_SECONDS,
+});
 
 type DashboardRows = Awaited<ReturnType<typeof getDashboardRows>>;
 type ReceiptRow = DashboardRows[0][number] & { resolvedDate: string | null };
@@ -861,7 +868,8 @@ export default async function DashboardPage({
   const timeZone = timeZoneFromCookie(cookieStore.get(TIME_ZONE_COOKIE)?.value);
   const today = todayIsoInTimeZone(timeZone);
   const rawStart = rangeStart(range, today);
-  const [rawReceipts, rawItems, ingestStatusRows, rawRecentFailures] = await getDashboardRows();
+  const [rawReceipts, rawItems, ingestStatusRows, rawRecentFailures] =
+    await getCachedDashboardRows();
   const receipts: ReceiptRow[] = rawReceipts.map((receipt) => ({
     ...receipt,
     itemCount: Number(receipt.itemCount),

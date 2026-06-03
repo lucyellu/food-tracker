@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { linkLineItemToCatalog } from "@/lib/products/catalog";
 import { isCategory } from "@/lib/products/category";
 
@@ -109,6 +110,7 @@ export async function PATCH(
     await linkLineItemToCatalog(updated, receipt?.vendor ?? null);
   }
 
+  revalidateFoodDataCache();
   return NextResponse.json({ item: updated });
 }
 
@@ -127,5 +129,6 @@ export async function DELETE(
     .returning({ id: schema.lineItems.id });
 
   if (deleted.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  revalidateFoodDataCache();
   return NextResponse.json({ ok: true });
 }

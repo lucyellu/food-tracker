@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { importGooglePhotosPickerSession } from "@/lib/google/photos";
 
 export const runtime = "nodejs";
@@ -29,6 +30,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    revalidateFoodDataCache();
     return NextResponse.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

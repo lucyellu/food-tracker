@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { getOrCreateCatalogProductForLineItem } from "@/lib/products/catalog";
 
 export const runtime = "nodejs";
@@ -134,6 +135,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     })
     .returning();
 
+  revalidateFoodDataCache();
   return NextResponse.json({ item: { ...item, nutrition }, log });
 }
 
@@ -173,5 +175,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     )
     .returning({ id: schema.lineItems.id });
 
+  if (rows.length > 0) revalidateFoodDataCache();
   return NextResponse.json({ updated: rows.length });
 }

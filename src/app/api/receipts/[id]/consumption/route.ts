@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     })
     .returning();
 
+  revalidateFoodDataCache();
   return NextResponse.json({ log });
 }
 
@@ -75,5 +77,6 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     .where(and(eq(schema.consumptionLogs.id, logId), eq(schema.consumptionLogs.receiptId, receiptId)))
     .returning({ id: schema.consumptionLogs.id });
 
+  if (rows.length > 0) revalidateFoodDataCache();
   return NextResponse.json({ deleted: rows.length });
 }

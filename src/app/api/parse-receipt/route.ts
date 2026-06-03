@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseReceipt } from "@/lib/llm/parse";
 import { schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { persistParsedReceipt } from "@/lib/receipts/persist";
 
 export const runtime = "nodejs";
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
       rawInputKind: RAW_KIND_MAP[kind],
       rawInputRef,
     });
+    revalidateFoodDataCache();
 
     return NextResponse.json({
       receiptId: receipt.id,

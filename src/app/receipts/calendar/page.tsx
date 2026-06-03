@@ -1,6 +1,8 @@
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
+import { unstable_cache } from "next/cache";
 import { db, schema } from "@/db/client";
+import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import {
   ReceiptCalendarView,
   type CalendarItem,
@@ -27,7 +29,7 @@ async function getCalendarData() {
         purchasedAt: schema.receipts.purchasedAt,
         total: schema.receipts.total,
         source: schema.receipts.source,
-        rawInputRef: schema.receipts.rawInputRef,
+        rawInputRef: sql<string | null>`null`,
         createdAt: schema.receipts.createdAt,
         itemCount: sql<number>`COUNT(${schema.lineItems.id})`.as("item_count"),
       })
@@ -47,7 +49,7 @@ async function getCalendarData() {
         statusDate: schema.lineItems.statusDate,
         receiptVendor: schema.receipts.vendor,
         receiptPurchasedAt: schema.receipts.purchasedAt,
-        receiptRawInputRef: schema.receipts.rawInputRef,
+        receiptRawInputRef: sql<string | null>`null`,
         receiptCreatedAt: schema.receipts.createdAt,
         totalGrams: schema.nutritionFacts.totalGrams,
         calories: schema.nutritionFacts.calories,
@@ -102,10 +104,15 @@ async function getCalendarData() {
   };
 }
 
+const getCachedCalendarData = unstable_cache(getCalendarData, ["receipt-calendar-data"], {
+  tags: [FOOD_DATA_CACHE_TAG],
+  revalidate: FOOD_DATA_CACHE_SECONDS,
+});
+
 export default async function ReceiptCalendarPage() {
   const cookieStore = await cookies();
   const timeZone = timeZoneFromCookie(cookieStore.get(TIME_ZONE_COOKIE)?.value);
-  const data = await getCalendarData();
+  const data = await getCachedCalendarData();
 
   return <ReceiptCalendarView receipts={data.receipts} items={data.items} timeZone={timeZone} />;
 }

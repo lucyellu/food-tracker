@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { unstable_cache } from "next/cache";
 import { desc, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import { RecategorizeButton } from "./RecategorizeButton";
 import { PotentialDuplicates, type DuplicateGroup } from "./PotentialDuplicates";
 import { SpendSummary } from "./SpendSummary";
@@ -34,6 +36,11 @@ async function getReceipts() {
     .groupBy(schema.receipts.id)
     .orderBy(desc(schema.receipts.createdAt));
 }
+
+const getCachedReceipts = unstable_cache(getReceipts, ["receipts-page"], {
+  tags: [FOOD_DATA_CACHE_TAG],
+  revalidate: FOOD_DATA_CACHE_SECONDS,
+});
 
 const SOURCE_LABEL: Record<string, string> = {
   manual_text: "pasted text",
@@ -158,7 +165,7 @@ export default async function ReceiptsPage({
   const params = await searchParams;
   const sort = parseSort(params.sort);
   const dir = parseDir(params.dir);
-  const receipts = sortedReceipts(await getReceipts(), sort, dir);
+  const receipts = sortedReceipts(await getCachedReceipts(), sort, dir);
   const duplicateGroups = buildDuplicateGroups(receipts);
 
   if (receipts.length === 0) {

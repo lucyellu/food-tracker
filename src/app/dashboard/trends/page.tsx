@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
-import { asc, desc, eq } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import {
   CalendarDays,
   Gauge,
@@ -14,6 +15,7 @@ import {
   Wine,
 } from "lucide-react";
 import { db, schema } from "@/db/client";
+import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import { TIME_ZONE_COOKIE, timeZoneFromCookie, todayIsoInTimeZone } from "@/lib/timezone";
 import {
   inferPurchasedDateFromText,
@@ -381,7 +383,7 @@ async function getTrendRows() {
         vendor: schema.receipts.vendor,
         purchasedAt: schema.receipts.purchasedAt,
         total: schema.receipts.total,
-        rawInputRef: schema.receipts.rawInputRef,
+        rawInputRef: sql<string | null>`null`,
         createdAt: schema.receipts.createdAt,
       })
       .from(schema.receipts)
@@ -397,7 +399,7 @@ async function getTrendRows() {
         price: schema.lineItems.price,
         receiptVendor: schema.receipts.vendor,
         receiptPurchasedAt: schema.receipts.purchasedAt,
-        receiptRawInputRef: schema.receipts.rawInputRef,
+        receiptRawInputRef: sql<string | null>`null`,
         catalogCategory: schema.productCatalog.category,
         totalGrams: schema.nutritionFacts.totalGrams,
         calories: schema.nutritionFacts.calories,
@@ -415,6 +417,11 @@ async function getTrendRows() {
       .orderBy(desc(schema.receipts.createdAt), asc(schema.lineItems.id)),
   ]);
 }
+
+const getCachedTrendRows = unstable_cache(getTrendRows, ["trend-rows"], {
+  tags: [FOOD_DATA_CACHE_TAG],
+  revalidate: FOOD_DATA_CACHE_SECONDS,
+});
 
 type TrendRows = Awaited<ReturnType<typeof getTrendRows>>;
 type ReceiptRow = TrendRows[0][number] & { resolvedDate: string | null };
@@ -1143,7 +1150,7 @@ export default async function TrendsPage({
   const timeZone = timeZoneFromCookie(cookieStore.get(TIME_ZONE_COOKIE)?.value);
   const today = todayIsoInTimeZone(timeZone);
   const rawStart = rangeStart(range, today);
-  const [rawReceipts, rawItems] = await getTrendRows();
+  const [rawReceipts, rawItems] = await getCachedTrendRows();
   const receipts: ReceiptRow[] = rawReceipts.map((receipt) => ({
     ...receipt,
     resolvedDate: resolvedReceiptDate(receipt),

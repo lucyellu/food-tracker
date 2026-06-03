@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { categorizeItem } from "@/lib/products/category";
 import { syncProductCatalogMetadata } from "@/lib/products/catalog";
 
@@ -45,5 +46,6 @@ export async function POST(req: NextRequest) {
     updated += 1;
   }
 
+  if (updated > 0) revalidateFoodDataCache();
   return NextResponse.json({ scanned: rows.length, updated });
 }

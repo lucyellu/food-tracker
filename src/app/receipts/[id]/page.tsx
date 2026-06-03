@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { unstable_cache } from "next/cache";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import { mergeCatalogFieldsIntoLineItem, vendorCatalogKey } from "@/lib/products/catalog";
 import { computeConsumptionWindow } from "@/lib/receipts/dates";
 import { EnrichNutritionButton } from "./EnrichNutritionButton";
@@ -57,6 +59,16 @@ async function getReceiptOutline() {
     .orderBy(desc(schema.receipts.createdAt));
 }
 
+const getCachedReceipt = unstable_cache(getReceipt, ["receipt-detail"], {
+  tags: [FOOD_DATA_CACHE_TAG],
+  revalidate: FOOD_DATA_CACHE_SECONDS,
+});
+
+const getCachedReceiptOutline = unstable_cache(getReceiptOutline, ["receipt-outline"], {
+  tags: [FOOD_DATA_CACHE_TAG],
+  revalidate: FOOD_DATA_CACHE_SECONDS,
+});
+
 function formatMoney(n: number | null) {
   if (n == null) return "—";
   return `$${n.toFixed(2)}`;
@@ -96,8 +108,8 @@ export default async function ReceiptDetailPage({
   if (!Number.isFinite(receiptId)) notFound();
 
   const [data, receiptOutline] = await Promise.all([
-    getReceipt(receiptId),
-    getReceiptOutline(),
+    getCachedReceipt(receiptId),
+    getCachedReceiptOutline(),
   ]);
   if (!data) notFound();
   const { receipt, items, logs } = data;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { revalidateFoodDataCache } from "@/lib/food-data-cache";
 import { enrichProductsForReceipt } from "@/lib/products/tnt";
 
 export const runtime = "nodejs";
@@ -20,6 +21,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
 
   try {
     const result = await enrichProductsForReceipt(receiptId);
+    revalidateFoodDataCache();
     return NextResponse.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
