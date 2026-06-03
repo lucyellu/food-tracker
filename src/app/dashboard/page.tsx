@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { cookies } from "next/headers";
-import { unstable_cache } from "next/cache";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import {
   AlertTriangle,
@@ -19,7 +18,6 @@ import {
 } from "lucide-react";
 import { VendorMark } from "@/components/VendorMark";
 import { db, schema } from "@/db/client";
-import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import { isRateLimitError } from "@/lib/llm/errors";
 import { TIME_ZONE_COOKIE, timeZoneFromCookie, todayIsoInTimeZone } from "@/lib/timezone";
 import {
@@ -492,11 +490,6 @@ async function getDashboardRows() {
   ]);
 }
 
-const getCachedDashboardRows = unstable_cache(getDashboardRows, ["dashboard-rows"], {
-  tags: [FOOD_DATA_CACHE_TAG],
-  revalidate: FOOD_DATA_CACHE_SECONDS,
-});
-
 type DashboardRows = Awaited<ReturnType<typeof getDashboardRows>>;
 type ReceiptRow = DashboardRows[0][number] & { resolvedDate: string | null };
 type ItemRow = DashboardRows[1][number] & { receiptDate: string | null };
@@ -869,7 +862,7 @@ export default async function DashboardPage({
   const today = todayIsoInTimeZone(timeZone);
   const rawStart = rangeStart(range, today);
   const [rawReceipts, rawItems, ingestStatusRows, rawRecentFailures] =
-    await getCachedDashboardRows();
+    await getDashboardRows();
   const receipts: ReceiptRow[] = rawReceipts.map((receipt) => ({
     ...receipt,
     itemCount: Number(receipt.itemCount),

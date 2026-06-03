@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set PORT=3000
+set PORT=3010
 set DIR=%~dp0
 set APP_URL=http://localhost:%PORT%/dashboard
 set LOCAL_DB=%DIR%tmp\food-tracker-local.db
@@ -14,7 +14,7 @@ if not exist "%LOCAL_DB%" (
     exit /b 1
 )
 
-rem Force the desktop app to use the restored local libSQL database, not Neon.
+rem Force the desktop app to use the restored local libSQL database.
 set TURSO_DATABASE_URL=file:./tmp/food-tracker-local.db
 set TURSO_AUTH_TOKEN=
 set LIBSQL_URL=
@@ -26,7 +26,7 @@ if %errorlevel% == 0 (
     echo Server already running on port %PORT%
 ) else (
     echo Starting Next.js dev server on port %PORT%...
-    start /min "Food Tracker - next-server" cmd /c "cd /d %DIR% && npm run dev"
+    start /min "Food Tracker - next-server" cmd /c "cd /d %DIR% && npm run dev -- -H localhost -p %PORT%"
     timeout /t 6 /nobreak >nul
 )
 
