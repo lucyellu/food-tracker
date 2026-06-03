@@ -29,6 +29,8 @@ const PARSE_STATUSES = new Set(["pending", "parsed", "failed"]);
 const ITEM_STATUSES = new Set(["available", "pantry", "fridge", "consumed", "disposed", "unavailable", "refunded"]);
 const NUTRITION_STATUSES = new Set(["pending", "matched", "unmatched", "manual"]);
 const LOG_UNITS = new Set(["item", "serving", "g", "100g"]);
+const MAX_REASONABLE_LINE_GRAMS = 100_000;
+const MAX_REASONABLE_LINE_CALORIES = 100_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -408,13 +410,27 @@ function normalizeNutrition(value: unknown): NutritionRow | null {
   const row = asRecord(value);
   const lineItemId = asInteger(row?.lineItemId);
   if (!row || !lineItemId) return null;
+  const totalGrams = asNumber(row.totalGrams);
+  const calories = asNumber(row.calories);
+  const proteinG = asNumber(row.proteinG);
+  const carbsG = asNumber(row.carbsG);
+  const fatG = asNumber(row.fatG);
+  if (
+    (totalGrams ?? 0) > MAX_REASONABLE_LINE_GRAMS ||
+    (calories ?? 0) > MAX_REASONABLE_LINE_CALORIES ||
+    (proteinG ?? 0) > MAX_REASONABLE_LINE_GRAMS ||
+    (carbsG ?? 0) > MAX_REASONABLE_LINE_GRAMS ||
+    (fatG ?? 0) > MAX_REASONABLE_LINE_GRAMS
+  ) {
+    return null;
+  }
   return {
     lineItemId,
-    totalGrams: asNumber(row.totalGrams),
-    calories: asNumber(row.calories),
-    proteinG: asNumber(row.proteinG),
-    carbsG: asNumber(row.carbsG),
-    fatG: asNumber(row.fatG),
+    totalGrams,
+    calories,
+    proteinG,
+    carbsG,
+    fatG,
     fiberG: asNumber(row.fiberG),
     sugarG: asNumber(row.sugarG),
     sodiumMg: asNumber(row.sodiumMg),

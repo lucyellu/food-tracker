@@ -352,13 +352,14 @@ function toGrams(value: number, unit: string) {
 
 function parsePackageGrams(rawName: string) {
   const compact = rawName.replace(/\s+/g, "");
-  const multiA = compact.match(/(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(kg|g|mg|ml|l|oz|lb)/i);
+  const unit = "(kg|mg|ml|oz|lb|g|l)(?![a-z])";
+  const multiA = compact.match(new RegExp(`(\\d+(?:\\.\\d+)?)x(\\d+(?:\\.\\d+)?)${unit}`, "i"));
   if (multiA) return Number(multiA[1]) * (toGrams(Number(multiA[2]), multiA[3]) ?? 0);
 
-  const multiB = compact.match(/(\d+(?:\.\d+)?)(kg|g|mg|ml|l|oz|lb)x(\d+(?:\.\d+)?)/i);
+  const multiB = compact.match(new RegExp(`(\\d+(?:\\.\\d+)?)${unit}x(\\d+(?:\\.\\d+)?)`, "i"));
   if (multiB) return Number(multiB[3]) * (toGrams(Number(multiB[1]), multiB[2]) ?? 0);
 
-  const single = compact.match(/(\d+(?:\.\d+)?)(kg|g|mg|ml|l|oz|lb)/i);
+  const single = compact.match(new RegExp(`(\\d+(?:\\.\\d+)?)${unit}`, "i"));
   if (single) return toGrams(Number(single[1]), single[2]);
   return null;
 }

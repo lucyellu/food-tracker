@@ -111,6 +111,8 @@ const ALCOHOL_ITEM_SIGNAL_RE =
   /\b(beer|wine|cider|vodka|gin|rum|whisk(?:y|ey)|tequila|liqueur|cocktail|cooler|seltzer|lager|ale|ipa)\b/i;
 
 const GRAMS_PER_OUNCE = 28.349523125;
+const MAX_REASONABLE_LINE_GRAMS = 100_000;
+const MAX_REASONABLE_LINE_CALORIES = 100_000;
 
 function parseRange(value: string | string[] | undefined): RangeKey {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -281,6 +283,22 @@ function formatPctPoint(value: number) {
 
 function finite(value: number | null | undefined) {
   return value != null && Number.isFinite(value) ? value : 0;
+}
+
+function hasImplausibleNutrition(item: {
+  totalGrams: number | null;
+  calories: number | null;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+}) {
+  return (
+    finite(item.totalGrams) > MAX_REASONABLE_LINE_GRAMS ||
+    finite(item.calories) > MAX_REASONABLE_LINE_CALORIES ||
+    finite(item.proteinG) > MAX_REASONABLE_LINE_GRAMS ||
+    finite(item.carbsG) > MAX_REASONABLE_LINE_GRAMS ||
+    finite(item.fatG) > MAX_REASONABLE_LINE_GRAMS
+  );
 }
 
 function emptyTotals(): MetricTotals {
@@ -472,14 +490,15 @@ function itemTotals(item: ItemRow) {
     : item.caffeineMg ?? active?.caffeineMg;
   const thcMg = active?.thcMg ?? active?.totalThcMg;
   const cbdMg = active?.cbdMg ?? active?.totalCbdMg;
+  const plausibleNutrition = !hasImplausibleNutrition(item);
 
   totals.itemCount = 1;
-  totals.calories = finite(calories);
-  totals.proteinG = finite(proteinG);
-  totals.carbsG = finite(carbsG);
-  totals.fatG = finite(fatG);
-  totals.alcoholG = finite(alcoholG);
-  totals.caffeineMg = finite(caffeineMg);
+  totals.calories = plausibleNutrition ? finite(calories) : 0;
+  totals.proteinG = plausibleNutrition ? finite(proteinG) : 0;
+  totals.carbsG = plausibleNutrition ? finite(carbsG) : 0;
+  totals.fatG = plausibleNutrition ? finite(fatG) : 0;
+  totals.alcoholG = plausibleNutrition ? finite(alcoholG) : 0;
+  totals.caffeineMg = plausibleNutrition ? finite(caffeineMg) : 0;
   totals.thcMg = finite(thcMg);
   totals.cbdMg = finite(cbdMg);
   totals.cbnMg = finite(active?.cbnMg);
