@@ -21,7 +21,8 @@ See [PROMPT.md](./PROMPT.md) for the full design spec.
 cp .env.local.example .env.local
 npx github:lucyellu/key-manager   # interactive prompts for each missing key
 
-# 2. Push schema to Turso/libSQL (creates all tables)
+# 2. Push schema to Turso/libSQL (creates all tables).
+# This is enough for a fresh Turso start; importing old Neon data is optional.
 npm run db:push
 
 # 3. Start the dev server
@@ -81,7 +82,20 @@ src/
 - `npm run db:studio` — open Drizzle Studio to browse data
 - `npm run db:migrate:turso` — copy existing Neon rows into Turso using `NEON_DATABASE_URL`/`DATABASE_URL` as source and `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` as target
 
-## Neon to Turso migration
+## Fresh Turso start or Neon migration
+
+If Neon is quota-blocked or the old rows are not worth carrying forward, start fresh:
+
+```bash
+# Create a Turso DB + token, set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN,
+# then create the empty schema.
+npm run db:push
+```
+
+That produces an empty Food Tracker database. The app will create rows again as
+receipts are parsed/imported.
+
+If the old Neon project is still readable, copy existing rows instead:
 
 ```bash
 # 1. Create Turso DB + token, then set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN

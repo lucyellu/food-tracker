@@ -6,6 +6,7 @@ Compact summary so a fresh session can continue without re-reading everything.
 - Next.js 16 (modified — read `node_modules/next/dist/docs/` before writing Next code; see AGENTS.md).
 - DB: Turso/libSQL via Drizzle on `codex/turso-migration`. Schema-first: edit `src/db/schema.ts` then `npm run db:push` (no migration files).
   - `db:push` needs `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from `.env.local` and network.
+  - Fresh Turso start is valid: create the Turso DB/token, run `npm run db:push`, and skip Neon copy. Local scratch QA on 2026-06-03 rendered `/`, `/receipts`, `/dashboard`, `/dashboard/trends`, `/receipts/calendar`, `/settings`, and `/email-parser`, then inserted a deterministic T&T receipt through the UI.
   - One-time Neon copy: keep the old Postgres URL as `NEON_DATABASE_URL` or legacy `DATABASE_URL`, then run `npm run db:migrate:turso` after `db:push` creates the Turso tables.
 - LLM: image receipts → Google Cloud Vision OCR → text parser; PDFs → Gemini; text/email → Gemini-text w/ DeepSeek fallback.
 - Verify with: `npx tsc --noEmit` and `npx eslint src`. Build: `npm run build`.
