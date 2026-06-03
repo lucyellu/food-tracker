@@ -12,6 +12,8 @@ import {
 const FDC_BASE_URL = "https://api.nal.usda.gov/fdc/v1";
 const GRAMS_PER_LB = 453.59237;
 const GRAMS_PER_OZ = 28.349523125;
+const MIN_SEARCH_MATCH_SCORE = 28;
+const MIN_CATALOG_MATCH_SCORE = 12;
 
 const NUTRIENT_IDS = {
   calories: new Set([1008, 2047, 2048]),
@@ -312,7 +314,7 @@ async function findBestFood(rawName: string): Promise<MatchResult | null> {
     if (best && best.score >= 28) break;
   }
 
-  if (!best || best.score < 12) return null;
+  if (!best || best.score < MIN_SEARCH_MATCH_SCORE) return null;
   return {
     food: await getFoodDetails(best.food.fdcId, best.food),
     score: best.score,
@@ -330,9 +332,11 @@ async function findCatalogFood(
     brandName: product.brand ?? undefined,
     brandOwner: product.brand ?? undefined,
   };
+  const score = scoreFood(product.displayName, fallback);
+  if (score < MIN_CATALOG_MATCH_SCORE) return null;
   return {
     food: await getFoodDetails(product.fdcId, fallback),
-    score: 100,
+    score,
     query: "product catalog",
   };
 }

@@ -548,15 +548,15 @@ function itemTotals(item: ItemRow) {
     : item.caffeineMg ?? active?.caffeineMg;
   const thcMg = active?.thcMg ?? active?.totalThcMg;
   const cbdMg = active?.cbdMg ?? active?.totalCbdMg;
-  const plausibleNutrition = !hasImplausibleNutrition(item);
+  const hasLineTotalNutrition = !per100gOnly && !hasImplausibleNutrition(item);
 
   totals.itemCount = 1;
-  totals.calories = plausibleNutrition ? finite(calories) : 0;
-  totals.proteinG = plausibleNutrition ? finite(proteinG) : 0;
-  totals.carbsG = plausibleNutrition ? finite(carbsG) : 0;
-  totals.fatG = plausibleNutrition ? finite(fatG) : 0;
-  totals.alcoholG = plausibleNutrition ? finite(alcoholG) : 0;
-  totals.caffeineMg = plausibleNutrition ? finite(caffeineMg) : 0;
+  totals.calories = hasLineTotalNutrition ? finite(calories) : 0;
+  totals.proteinG = hasLineTotalNutrition ? finite(proteinG) : 0;
+  totals.carbsG = hasLineTotalNutrition ? finite(carbsG) : 0;
+  totals.fatG = hasLineTotalNutrition ? finite(fatG) : 0;
+  totals.alcoholG = hasLineTotalNutrition ? finite(alcoholG) : 0;
+  totals.caffeineMg = hasLineTotalNutrition ? finite(caffeineMg) : 0;
   totals.thcMg = finite(thcMg);
   totals.cbdMg = finite(cbdMg);
   totals.cbnMg = finite(active?.cbnMg);

@@ -14,6 +14,7 @@ const GRAMS_PER_LB = 453.59237;
 const GRAMS_PER_OZ = 28.349523125;
 const ML_PER_FL_OZ = 29.5735;
 const SEARCH_LIMIT_PER_RECEIPT = Number(process.env.OPEN_FOOD_FACTS_SEARCH_LIMIT_PER_RECEIPT ?? 8);
+const MIN_SEARCH_MATCH_SCORE = 20;
 
 type LineItem = typeof schema.lineItems.$inferSelect;
 type ProductCatalogItem = typeof schema.productCatalog.$inferSelect;
@@ -236,7 +237,7 @@ async function searchProduct(query: string) {
     const score = scoreProduct(query, product);
     if (!best || score > best.score) best = { product, score };
   }
-  return best && best.score >= 12 ? best.product : null;
+  return best && best.score >= MIN_SEARCH_MATCH_SCORE ? best.product : null;
 }
 
 async function findProductForItem(
