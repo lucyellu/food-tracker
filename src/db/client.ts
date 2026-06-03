@@ -1,14 +1,27 @@
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 import * as schema from "./schema";
 
-// Use an obvious placeholder when DATABASE_URL is missing so build-time static
-// analysis doesn't crash. Runtime queries will fail with a clearer error.
+const legacyDatabaseUrl = process.env.DATABASE_URL;
+const legacyDatabaseUrlIsLibsql =
+  legacyDatabaseUrl?.startsWith("libsql://") ||
+  legacyDatabaseUrl?.startsWith("file:") ||
+  legacyDatabaseUrl?.startsWith("http://") ||
+  legacyDatabaseUrl?.startsWith("https://");
+
+// Prefer explicit Turso/libSQL env vars. The file fallback keeps Next build-time
+// imports from crashing before production env vars are configured.
 const url =
-  process.env.DATABASE_URL ||
-  "postgresql://invalid:invalid@invalid.neon.tech/invalid?sslmode=require";
+  process.env.TURSO_DATABASE_URL ||
+  process.env.LIBSQL_URL ||
+  (legacyDatabaseUrlIsLibsql ? legacyDatabaseUrl : undefined) ||
+  "file:./tmp/food-tracker-local.db";
+const authToken = process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN;
 
-const sqlClient = neon(url);
-export const db = drizzle(sqlClient, { schema });
+const client = createClient({
+  url,
+  authToken,
+});
+
+export const db = drizzle(client, { schema });
 export { schema };
-

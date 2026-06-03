@@ -21,7 +21,7 @@ See [PROMPT.md](./PROMPT.md) for the full design spec.
 cp .env.local.example .env.local
 npx github:lucyellu/key-manager   # interactive prompts for each missing key
 
-# 2. Push schema to Neon (creates all tables)
+# 2. Push schema to Turso/libSQL (creates all tables)
 npm run db:push
 
 # 3. Start the dev server
@@ -30,7 +30,7 @@ npm run dev
 
 Visit http://localhost:3000.
 
-You need: DeepSeek key, Gemini key, USDA key (Phase 2), and a Postgres URL (`DATABASE_URL`). The current default uses Neon Postgres because it is quick to set up and works well with Netlify; the schema itself is plain Postgres and can be moved later with `pg_dump` / `pg_restore`.
+You need: DeepSeek key, Gemini key, USDA key (Phase 2), and Turso/libSQL credentials (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`). The app uses Turso for persistence so read-heavy dashboards stay inside a much roomier free tier than Neon network transfer.
 
 Open Food Facts enrichment is optional and read-only. It does not need an API key, but set `OPEN_FOOD_FACTS_USER_AGENT` to a custom value with a contact email if you deploy the app publicly.
 
@@ -45,7 +45,7 @@ Then set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `EMAIL_ENCRYPTION_KEY`.
 ## Architecture
 
 - **Next.js 16 App Router** (TypeScript, React 19).
-- **Database**: Drizzle ORM over Neon serverless Postgres (`@neondatabase/serverless`). Single connection string powers both local dev and Netlify production. The tables are standard Postgres, so the main migration work for moving off Neon is swapping the Drizzle driver and restoring the data into another Postgres host.
+- **Database**: Drizzle ORM over Turso/libSQL (`@libsql/client`). Hot dashboard reads avoid raw receipt text and use Next cache tags so routine navigation transfers less data.
 - **LLM routing** (`src/lib/llm/parse.ts`):
   - Text + email → DeepSeek `deepseek-chat` (cheap, ~$0.14/1M input)
   - Images + PDFs → Google Gemini 2.0 Flash (cheapest vision-capable)
@@ -79,13 +79,27 @@ src/
 - `npm run build` — production build
 - `npm run db:push` — sync schema to the database (rerun after editing `src/db/schema.ts`)
 - `npm run db:studio` — open Drizzle Studio to browse data
+- `npm run db:migrate:turso` — copy existing Neon rows into Turso using `NEON_DATABASE_URL`/`DATABASE_URL` as source and `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` as target
+
+## Neon to Turso migration
+
+```bash
+# 1. Create Turso DB + token, then set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN
+npm run db:push
+
+# 2. Copy existing Neon rows into the Turso database
+# Source URL: NEON_DATABASE_URL, or the legacy DATABASE_URL if still set to Neon.
+npm run db:migrate:turso
+```
+
+After the copy, set Netlify environment variables to `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Keep the old Neon URL only as `NEON_DATABASE_URL` while migration verification is underway.
 
 ## Deploy to Netlify
 
 1. Push this repo to GitHub.
 2. In Netlify dashboard → "Add new site" → "Import from Git" → pick the repo.
 3. Build settings: leave defaults (`netlify.toml` configures them).
-4. Site settings → Environment variables → add `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `USDA_API_KEY`, `DATABASE_URL`, and `EMAIL_ENCRYPTION_KEY` (same values as your local `.env.local`).
+4. Site settings → Environment variables → add `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `USDA_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `EMAIL_ENCRYPTION_KEY` (same values as your local `.env.local`).
 5. Trigger deploy.
 
 The Phase 3.5 scheduled function (Gmail polling) will be wired into `netlify.toml` when that phase is built.

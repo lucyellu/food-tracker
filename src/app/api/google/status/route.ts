@@ -41,7 +41,7 @@ export async function GET() {
         },
         accounts: [],
         error: msg.includes("Failed query")
-          ? "Could not read email settings. Check DATABASE_URL and run npm run db:push."
+          ? "Could not read email settings. Check TURSO_DATABASE_URL/TURSO_AUTH_TOKEN and run npm run db:push."
           : msg,
       },
       { status: 500 },

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Import a parsed receipt CSV into the Neon database, bypassing the LLM entirely.
+// Import a parsed receipt CSV into the Turso/libSQL database, bypassing the LLM entirely.
 //
 // Usage:
 //   node scripts/import-csv.mjs parsed-receipts/tnt-2026-05-18.csv \
@@ -11,9 +11,9 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { neon } from "@neondatabase/serverless";
+import { createClient } from "@libsql/client";
 
-// Load .env.local so DATABASE_URL is available without dotenv as a dep.
+// Load .env.local so Turso env vars are available without dotenv as a dep.
 function loadEnv(path) {
   if (!existsSync(path)) return;
   for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
@@ -60,9 +60,10 @@ const purchasedAt = flags.date ?? null;
 const total = flags.total ? Number(flags.total) : null;
 const isDryRun = !!flags["dry-run"];
 
-const dbUrl = process.env.DATABASE_URL;
+const dbUrl = process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL || process.env.DATABASE_URL;
+const dbToken = process.env.TURSO_AUTH_TOKEN || process.env.LIBSQL_AUTH_TOKEN;
 if (!dbUrl && !isDryRun) {
-  console.error("DATABASE_URL is not set. Run `setkey DATABASE_URL` first.");
+  console.error("TURSO_DATABASE_URL is not set. Run `setkey TURSO_DATABASE_URL` first.");
   console.error("(Or pass --dry-run to preview without DB.)");
   process.exit(1);
 }
@@ -95,14 +96,17 @@ if (isDryRun) {
   process.exit(0);
 }
 
-const sql = neon(dbUrl);
+const db = createClient({ url: dbUrl, authToken: dbToken });
 
-const receiptRows = await sql`
+const receiptRows = await db.execute({
+  sql: `
   INSERT INTO receipts (vendor, purchased_at, total, source, raw_input_kind, parse_status)
-  VALUES (${vendor}, ${purchasedAt}, ${total}, 'manual_email_paste', 'email', 'parsed')
+  VALUES (?, ?, ?, 'manual_email_paste', 'email', 'parsed')
   RETURNING id
-`;
-const receiptId = receiptRows[0].id;
+`,
+  args: [vendor, purchasedAt, total],
+});
+const receiptId = Number(receiptRows.rows[0].id);
 console.log(`Inserted receipt #${receiptId}`);
 
 let inserted = 0;
@@ -116,7 +120,8 @@ for (const r of rows) {
     continue;
   }
   const isRefunded = r.status === "refunded";
-  await sql`
+  await db.execute({
+    sql: `
     INSERT INTO line_items (
       receipt_id,
       raw_name,
@@ -128,16 +133,18 @@ for (const r of rows) {
       consumption_status
     )
     VALUES (
-      ${receiptId},
-      ${r.raw_name},
-      ${qty},
-      ${r.unit ?? "count"},
-      ${price},
-      ${r.sku || null},
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
+      ?,
       'T&T',
-      ${isRefunded ? "refunded" : "available"}
+      ?
     )
-  `;
+  `,
+    args: [receiptId, r.raw_name, qty, r.unit ?? "count", price, r.sku || null, isRefunded ? "refunded" : "available"],
+  });
   inserted++;
 }
 

@@ -423,7 +423,7 @@ async function getDashboardRows() {
         parseStatus: schema.receipts.parseStatus,
         parseError: schema.receipts.parseError,
         createdAt: schema.receipts.createdAt,
-        itemCount: sql<number>`COUNT(${schema.lineItems.id})::int`.as("item_count"),
+        itemCount: sql<number>`CAST(COUNT(${schema.lineItems.id}) AS INTEGER)`.as("item_count"),
       })
       .from(schema.receipts)
       .leftJoin(schema.lineItems, eq(schema.lineItems.receiptId, schema.receipts.id))
@@ -469,9 +469,9 @@ async function getDashboardRows() {
     db
       .select({
         status: schema.emailIngestLog.status,
-        count: sql<number>`COUNT(*)::int`.as("count"),
+        count: sql<number>`CAST(COUNT(*) AS INTEGER)`.as("count"),
         rateLimitedCount:
-          sql<number>`COUNT(*) FILTER (WHERE COALESCE(${schema.emailIngestLog.errorText}, '') ILIKE '%quota/rate limit%')::int`.as(
+          sql<number>`CAST(COUNT(*) FILTER (WHERE lower(COALESCE(${schema.emailIngestLog.errorText}, '')) LIKE '%quota/rate limit%') AS INTEGER)`.as(
             "rate_limited_count",
           ),
       })

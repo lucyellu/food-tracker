@@ -4,12 +4,12 @@ Compact summary so a fresh session can continue without re-reading everything.
 
 ## Project facts
 - Next.js 16 (modified — read `node_modules/next/dist/docs/` before writing Next code; see AGENTS.md).
-- DB: Neon Postgres via Drizzle. Schema-first: edit `src/db/schema.ts` then `npm run db:push` (no migration files).
-  - `db:push` needs `DATABASE_URL` from `.env.local` and network. Run:
-    `export $(grep -E '^DATABASE_URL=' .env.local | sed 's/"//g') && npm run db:push`
+- DB: Turso/libSQL via Drizzle on `codex/turso-migration`. Schema-first: edit `src/db/schema.ts` then `npm run db:push` (no migration files).
+  - `db:push` needs `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from `.env.local` and network.
+  - One-time Neon copy: keep the old Postgres URL as `NEON_DATABASE_URL` or legacy `DATABASE_URL`, then run `npm run db:migrate:turso` after `db:push` creates the Turso tables.
 - LLM: image receipts → Google Cloud Vision OCR → text parser; PDFs → Gemini; text/email → Gemini-text w/ DeepSeek fallback.
-- Verify with: `npx tsc --noEmit` and `npx eslint src`. Build: `npm run build` (export DATABASE_URL first).
-- Keys live in `.env.local` (gitignored): DEEPSEEK_API_KEY, GEMINI_API_KEY, GOOGLE_CLOUD_VISION_API_KEY (+billing enabled), USDA, DATABASE_URL, etc. Netlify deploy needs these set there too.
+- Verify with: `npx tsc --noEmit` and `npx eslint src`. Build: `npm run build`.
+- Keys live in `.env.local` (gitignored): DEEPSEEK_API_KEY, GEMINI_API_KEY, GOOGLE_CLOUD_VISION_API_KEY (+billing enabled), USDA, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, etc. Netlify deploy needs these set there too.
 
 ## DONE and shipped (build passed, on branch — verify git status)
 1. **Cloud Vision OCR for image receipts** — `src/lib/llm/parse.ts` (images go OCR→text parser, no Gemini vision). Committed earlier (`90567ae` on main).

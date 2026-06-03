@@ -1,22 +1,27 @@
 import {
-  pgTable,
-  serial,
   integer,
   text,
-  doublePrecision,
-  boolean,
-  timestamp,
+  real,
+  sqliteTable,
   index,
   uniqueIndex,
-} from "drizzle-orm/pg-core";
+} from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 
-export const receipts = pgTable(
+const id = (name = "id") => integer(name).primaryKey({ autoIncrement: true });
+const boolean = (name: string) => integer(name, { mode: "boolean" });
+const timestamp = (name: string) =>
+  integer(name, { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`);
+
+export const receipts = sqliteTable(
   "receipts",
   {
-    id: serial("id").primaryKey(),
+    id: id(),
     vendor: text("vendor"),
     purchasedAt: text("purchased_at"),
-    total: doublePrecision("total"),
+    total: real("total"),
     source: text("source", {
       enum: ["manual_text", "manual_image", "manual_email_paste", "auto_email", "google_photos"],
     }).notNull(),
@@ -27,9 +32,7 @@ export const receipts = pgTable(
       .notNull()
       .default("pending"),
     parseError: text("parse_error"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at"),
   },
   (t) => [
     uniqueIndex("receipts_source_message_id_unique").on(t.sourceMessageId),
@@ -38,10 +41,10 @@ export const receipts = pgTable(
   ],
 );
 
-export const productCatalog = pgTable(
+export const productCatalog = sqliteTable(
   "product_catalog",
   {
-    id: serial("id").primaryKey(),
+    id: id(),
     productKey: text("product_key").notNull(),
     displayName: text("display_name").notNull(),
     normalizedName: text("normalized_name"),
@@ -55,12 +58,8 @@ export const productCatalog = pgTable(
     productUrl: text("product_url"),
     productImageUrl: text("product_image_url"),
     fdcId: integer("fdc_id"),
-    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    firstSeenAt: timestamp("first_seen_at"),
+    updatedAt: timestamp("updated_at"),
   },
   (t) => [
     uniqueIndex("product_catalog_product_key_unique").on(t.productKey),
@@ -71,10 +70,10 @@ export const productCatalog = pgTable(
   ],
 );
 
-export const lineItems = pgTable(
+export const lineItems = sqliteTable(
   "line_items",
   {
-    id: serial("id").primaryKey(),
+    id: id(),
     receiptId: integer("receipt_id")
       .notNull()
       .references(() => receipts.id, { onDelete: "cascade" }),
@@ -85,9 +84,9 @@ export const lineItems = pgTable(
     normalizedName: text("normalized_name"),
     category: text("category"),
     brand: text("brand"),
-    quantity: doublePrecision("quantity").notNull().default(1),
+    quantity: real("quantity").notNull().default(1),
     unit: text("unit").notNull().default("count"),
-    price: doublePrecision("price"),
+    price: real("price"),
     retailerSku: text("retailer_sku"),
     productSource: text("product_source"),
     productUrl: text("product_url"),
@@ -112,30 +111,30 @@ export const lineItems = pgTable(
   ],
 );
 
-export const nutritionFacts = pgTable("nutrition_facts", {
+export const nutritionFacts = sqliteTable("nutrition_facts", {
   lineItemId: integer("line_item_id")
     .primaryKey()
     .references(() => lineItems.id, { onDelete: "cascade" }),
-  totalGrams: doublePrecision("total_grams"),
-  calories: doublePrecision("calories"),
-  proteinG: doublePrecision("protein_g"),
-  carbsG: doublePrecision("carbs_g"),
-  fatG: doublePrecision("fat_g"),
-  fiberG: doublePrecision("fiber_g"),
-  sugarG: doublePrecision("sugar_g"),
-  sodiumMg: doublePrecision("sodium_mg"),
-  alcoholG: doublePrecision("alcohol_g"),
-  caffeineMg: doublePrecision("caffeine_mg"),
+  totalGrams: real("total_grams"),
+  calories: real("calories"),
+  proteinG: real("protein_g"),
+  carbsG: real("carbs_g"),
+  fatG: real("fat_g"),
+  fiberG: real("fiber_g"),
+  sugarG: real("sugar_g"),
+  sodiumMg: real("sodium_mg"),
+  alcoholG: real("alcohol_g"),
+  caffeineMg: real("caffeine_mg"),
   vitaminsJson: text("vitamins_json"),
   mineralsJson: text("minerals_json"),
   ingredientsText: text("ingredients_text"),
   activeIngredientsJson: text("active_ingredients_json"),
 });
 
-export const consumptionLogs = pgTable(
+export const consumptionLogs = sqliteTable(
   "consumption_logs",
   {
-    id: serial("id").primaryKey(),
+    id: id(),
     receiptId: integer("receipt_id")
       .notNull()
       .references(() => receipts.id, { onDelete: "cascade" }),
@@ -143,14 +142,12 @@ export const consumptionLogs = pgTable(
       .notNull()
       .references(() => lineItems.id, { onDelete: "cascade" }),
     consumedAt: text("consumed_at").notNull(),
-    amount: doublePrecision("amount").notNull().default(1),
+    amount: real("amount").notNull().default(1),
     unit: text("unit", { enum: ["item", "serving", "g", "100g"] })
       .notNull()
       .default("serving"),
     note: text("note"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at"),
   },
   (t) => [
     index("consumption_logs_receipt_id_idx").on(t.receiptId),
@@ -159,7 +156,7 @@ export const consumptionLogs = pgTable(
   ],
 );
 
-export const settings = pgTable("settings", {
+export const settings = sqliteTable("settings", {
   id: integer("id").primaryKey().default(1),
   people: integer("people").notNull().default(2),
   days: integer("days").notNull().default(7),
@@ -172,10 +169,10 @@ export const settings = pgTable("settings", {
   emailPollIntervalMin: integer("email_poll_interval_min").default(5),
 });
 
-export const emailAccounts = pgTable(
+export const emailAccounts = sqliteTable(
   "email_accounts",
   {
-    id: serial("id").primaryKey(),
+    id: id(),
     provider: text("provider", { enum: ["gmail_oauth", "yahoo_imap"] }).notNull(),
     label: text("label"),
     email: text("email"),
@@ -185,12 +182,8 @@ export const emailAccounts = pgTable(
     query: text("query"),
     secretEncrypted: text("secret_encrypted").notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
   },
   (t) => [
     index("email_accounts_provider_idx").on(t.provider),
@@ -198,16 +191,14 @@ export const emailAccounts = pgTable(
   ],
 );
 
-export const emailIngestLog = pgTable(
+export const emailIngestLog = sqliteTable(
   "email_ingest_log",
   {
-    id: serial("id").primaryKey(),
+    id: id(),
     emailAccountId: integer("email_account_id").references(() => emailAccounts.id, {
       onDelete: "set null",
     }),
-    receivedAt: timestamp("received_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    receivedAt: timestamp("received_at"),
     fromAddress: text("from_address"),
     subject: text("subject"),
     messageId: text("message_id"),
@@ -226,25 +217,19 @@ export const emailIngestLog = pgTable(
   ],
 );
 
-export const googlePhotoConnections = pgTable("google_photo_connections", {
+export const googlePhotoConnections = sqliteTable("google_photo_connections", {
   id: integer("id").primaryKey().default(1),
   email: text("email"),
   secretEncrypted: text("secret_encrypted").notNull(),
   enabled: boolean("enabled").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
 });
 
-export const usdaCache = pgTable("usda_cache", {
+export const usdaCache = sqliteTable("usda_cache", {
   fdcId: integer("fdc_id").primaryKey(),
   payloadJson: text("payload_json").notNull(),
-  cachedAt: timestamp("cached_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  cachedAt: timestamp("cached_at"),
 });
 
 export type Receipt = typeof receipts.$inferSelect;
