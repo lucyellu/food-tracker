@@ -31,8 +31,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type RangeKey = "30" | "90" | "365" | "all";
+type RangeKey = "1" | "7" | "30" | "90" | "365" | "all" | "custom";
 type PivotMode = "time" | "calories" | "budget";
+type DateRange = {
+  start: string;
+  end: string;
+};
 
 type MetricTotals = {
   spend: number;
@@ -77,10 +81,13 @@ type NutritionMeta = {
 };
 
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
+  { key: "1", label: "Day" },
+  { key: "7", label: "Week" },
   { key: "30", label: "30d" },
   { key: "90", label: "90d" },
   { key: "365", label: "1y" },
   { key: "all", label: "All" },
+  { key: "custom", label: "Custom" },
 ];
 
 const PIVOT_OPTIONS: Array<{ key: PivotMode; label: string; hint: string }> = [
@@ -106,7 +113,15 @@ const MAX_REASONABLE_LINE_CALORIES = 100_000;
 
 function parseRange(value: string | string[] | undefined): RangeKey {
   const raw = Array.isArray(value) ? value[0] : value;
-  return raw === "30" || raw === "90" || raw === "365" || raw === "all" ? raw : "90";
+  return raw === "1" ||
+    raw === "7" ||
+    raw === "30" ||
+    raw === "90" ||
+    raw === "365" ||
+    raw === "all" ||
+    raw === "custom"
+    ? raw
+    : "90";
 }
 
 function parsePivot(value: string | string[] | undefined): PivotMode {
@@ -132,12 +147,16 @@ function dashboardHref({
   anchorDays,
   dailyCalories,
   monthlyBudget,
+  start,
+  end,
 }: {
   range: RangeKey;
   pivot: PivotMode;
   anchorDays: number;
   dailyCalories: number;
   monthlyBudget: number;
+  start?: string;
+  end?: string;
 }) {
   const params = new URLSearchParams({
     range,
@@ -146,6 +165,10 @@ function dashboardHref({
     dailyCalories: String(dailyCalories),
     monthlyBudget: String(monthlyBudget),
   });
+  if (range === "custom") {
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
+  }
   return `/dashboard?${params.toString()}`;
 }
 
@@ -177,6 +200,13 @@ function datePart(value: Date | string | null | undefined) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
+function parseDateParam(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : raw;
+}
+
 function resolvedReceiptDate(receipt: {
   purchasedAt: string | null;
   rawInputRef: string | null;
@@ -188,7 +218,31 @@ function resolvedReceiptDate(receipt: {
 }
 
 function rangeStart(range: RangeKey, today: string) {
-  return range === "all" ? null : addDays(today, -Number(range) + 1);
+  return range === "all" || range === "custom" ? null : addDays(today, -Number(range) + 1);
+}
+
+function resolveDateRange({
+  range,
+  today,
+  firstDate,
+  customStart,
+  customEnd,
+}: {
+  range: RangeKey;
+  today: string;
+  firstDate: string;
+  customStart: string | null;
+  customEnd: string | null;
+}): DateRange {
+  if (range === "custom") {
+    const rawStart = customStart ?? firstDate;
+    const rawEnd = customEnd ?? today;
+    return rawStart <= rawEnd
+      ? { start: rawStart, end: rawEnd }
+      : { start: rawEnd, end: rawStart };
+  }
+
+  return { start: rangeStart(range, today) ?? firstDate, end: today };
 }
 
 function periodDays(start: string | null, end: string) {
@@ -864,6 +918,8 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{
     range?: string | string[];
+    start?: string | string[];
+    end?: string | string[];
     pivot?: string | string[];
     anchorDays?: string | string[];
     dailyCalories?: string | string[];
@@ -872,6 +928,8 @@ export default async function DashboardPage({
 }) {
   const params = await searchParams;
   const range = parseRange(params.range);
+  const customStart = parseDateParam(params.start);
+  const customEnd = parseDateParam(params.end);
   const pivot = parsePivot(params.pivot);
   const anchorDays = parsePositiveNumber(params.anchorDays, 7, 1, 365);
   const dailyCalories = parsePositiveNumber(params.dailyCalories, 1500, 1, 10000);
@@ -879,7 +937,6 @@ export default async function DashboardPage({
   const cookieStore = await cookies();
   const timeZone = timeZoneFromCookie(cookieStore.get(TIME_ZONE_COOKIE)?.value);
   const today = todayIsoInTimeZone(timeZone);
-  const rawStart = rangeStart(range, today);
   const [rawReceipts, rawItems, ingestStatusRows, rawRecentFailures] =
     await getDashboardRows();
   const receipts: ReceiptRow[] = rawReceipts.map((receipt) => ({
@@ -900,14 +957,14 @@ export default async function DashboardPage({
   const datedReceipts = primaryReceipts.filter((receipt) => receipt.resolvedDate);
   const firstDate =
     datedReceipts.map((receipt) => receipt.resolvedDate).sort()[0] ?? today;
-  const start = rawStart ?? firstDate;
-  const days = periodDays(start, today);
+  const { start, end } = resolveDateRange({ range, today, firstDate, customStart, customEnd });
+  const days = periodDays(start, end);
   const periodReceipts = primaryReceipts.filter((receipt) =>
-    inPeriod(receipt.resolvedDate, start, today),
+    inPeriod(receipt.resolvedDate, start, end),
   );
   const intervals = buildIntervals(primaryReceipts, itemsByReceiptId, primaryReceiptIds);
   const periodIntervals = intervals.filter((interval) =>
-    intervalOverlapDays(interval, start, today) > 0,
+    intervalOverlapDays(interval, start, end) > 0,
   );
   const periodSpend = periodReceipts.reduce(
     (sum, receipt) => sum + (receipt.total ?? 0),
@@ -921,7 +978,7 @@ export default async function DashboardPage({
     addTotals(totals, row.totals);
     return totals;
   }, emptyTotals());
-  const periodDaily = intervalDailyAverage(periodIntervals, start, today, days);
+  const periodDaily = intervalDailyAverage(periodIntervals, start, end, days);
   const spendPerDay = periodSpend / days;
   const budgetPerDay = monthlyBudget / 30.4375;
   const periodBudgetAllowance = budgetPerDay * days;
@@ -1002,7 +1059,7 @@ export default async function DashboardPage({
     primaryReceipts.length > 0
       ? datedRatio * 0.4 + categorizedRatio * 0.35 + nutritionRatio * 0.25
       : 0;
-  const weeklyTrend = buildWeeklyTrend(periodReceipts, periodIntervals, start, today);
+  const weeklyTrend = buildWeeklyTrend(periodReceipts, periodIntervals, start, end);
   const maxWeeklySpend = Math.max(...weeklyTrend.map((week) => week.spend), 1);
   const maxWeeklyCalories = Math.max(...weeklyTrend.map((week) => week.calories), 1);
   const repeatVendors = buildRepeatVendors(intervals, today);
@@ -1121,7 +1178,7 @@ export default async function DashboardPage({
         <div>
           <div className="flex items-center gap-2 text-sm text-zinc-500">
             <CalendarDays className="size-4" />
-            {formatShortDate(start)} - {formatShortDate(today)} · {timeZone}
+            {formatShortDate(start)} - {formatShortDate(end)} · {timeZone}
           </div>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal">Consumption dashboard</h1>
         </div>
@@ -1131,7 +1188,15 @@ export default async function DashboardPage({
             {RANGE_OPTIONS.map((option) => (
               <Link
                 key={option.key}
-                href={dashboardHref({ range: option.key, pivot, anchorDays, dailyCalories, monthlyBudget })}
+                href={dashboardHref({
+                  range: option.key,
+                  pivot,
+                  anchorDays,
+                  dailyCalories,
+                  monthlyBudget,
+                  start,
+                  end,
+                })}
                 prefetch={false}
                 className={`min-w-0 flex-1 rounded-md px-3 py-1.5 text-center text-sm font-medium sm:flex-none ${
                   range === option.key
@@ -1143,6 +1208,42 @@ export default async function DashboardPage({
               </Link>
             ))}
           </div>
+          <form
+            action="/dashboard"
+            className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:w-auto"
+          >
+            <input type="hidden" name="range" value="custom" />
+            <input type="hidden" name="pivot" value={pivot} />
+            <input type="hidden" name="anchorDays" value={anchorDays} />
+            <input type="hidden" name="dailyCalories" value={dailyCalories} />
+            <input type="hidden" name="monthlyBudget" value={monthlyBudget} />
+            <label className="sr-only" htmlFor="dashboard-start">
+              Start
+            </label>
+            <input
+              id="dashboard-start"
+              name="start"
+              type="date"
+              defaultValue={start}
+              className="h-10 min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+            />
+            <label className="sr-only" htmlFor="dashboard-end">
+              End
+            </label>
+            <input
+              id="dashboard-end"
+              name="end"
+              type="date"
+              defaultValue={end}
+              className="h-10 min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+            />
+            <button
+              type="submit"
+              className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+            >
+              Apply
+            </button>
+          </form>
           <Link
             href="/dashboard/trends"
             prefetch={false}
@@ -1199,7 +1300,15 @@ export default async function DashboardPage({
                 {PIVOT_OPTIONS.map((option) => (
                   <Link
                     key={option.key}
-                    href={dashboardHref({ range, pivot: option.key, anchorDays, dailyCalories, monthlyBudget })}
+                    href={dashboardHref({
+                      range,
+                      pivot: option.key,
+                      anchorDays,
+                      dailyCalories,
+                      monthlyBudget,
+                      start,
+                      end,
+                    })}
                     prefetch={false}
                     title={option.hint}
                     className={`rounded-md border px-3 py-2 text-center text-sm font-medium ${
@@ -1222,6 +1331,8 @@ export default async function DashboardPage({
                 </div>
                 <form action="/dashboard" className="grid gap-2">
                   <input type="hidden" name="range" value={range} />
+                  {range === "custom" ? <input type="hidden" name="start" value={start} /> : null}
+                  {range === "custom" ? <input type="hidden" name="end" value={end} /> : null}
                   <input type="hidden" name="pivot" value={pivot} />
                   {pivot !== "time" ? <input type="hidden" name="anchorDays" value={anchorDays} /> : null}
                   {pivot !== "calories" ? <input type="hidden" name="dailyCalories" value={dailyCalories} /> : null}

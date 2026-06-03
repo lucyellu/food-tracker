@@ -26,8 +26,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
-type RangeKey = "365" | "730" | "all";
-type BucketMode = "month" | "year";
+type RangeKey = "1" | "7" | "30" | "90" | "365" | "730" | "all" | "custom";
+type BucketMode = "day" | "week" | "month" | "year";
+type DateRange = {
+  start: string;
+  end: string;
+};
 type CategoryKey =
   | "all"
   | "food"
@@ -84,12 +88,19 @@ type NutritionMeta = {
 };
 
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string }> = [
+  { key: "1", label: "Day" },
+  { key: "7", label: "Week" },
+  { key: "30", label: "30d" },
+  { key: "90", label: "90d" },
   { key: "365", label: "1y" },
   { key: "730", label: "2y" },
   { key: "all", label: "All" },
+  { key: "custom", label: "Custom" },
 ];
 
 const BUCKET_OPTIONS: Array<{ key: BucketMode; label: string }> = [
+  { key: "day", label: "Days" },
+  { key: "week", label: "Weeks" },
   { key: "month", label: "Months" },
   { key: "year", label: "Years" },
 ];
@@ -116,12 +127,21 @@ const MAX_REASONABLE_LINE_CALORIES = 100_000;
 
 function parseRange(value: string | string[] | undefined): RangeKey {
   const raw = Array.isArray(value) ? value[0] : value;
-  return raw === "365" || raw === "730" || raw === "all" ? raw : "365";
+  return raw === "1" ||
+    raw === "7" ||
+    raw === "30" ||
+    raw === "90" ||
+    raw === "365" ||
+    raw === "730" ||
+    raw === "all" ||
+    raw === "custom"
+    ? raw
+    : "365";
 }
 
 function parseBucket(value: string | string[] | undefined): BucketMode {
   const raw = Array.isArray(value) ? value[0] : value;
-  return raw === "year" ? "year" : "month";
+  return raw === "day" || raw === "week" || raw === "year" ? raw : "month";
 }
 
 function parseCategory(value: string | string[] | undefined): CategoryKey {
@@ -133,12 +153,20 @@ function trendsHref({
   range,
   bucket,
   category,
+  start,
+  end,
 }: {
   range: RangeKey;
   bucket: BucketMode;
   category: CategoryKey;
+  start?: string;
+  end?: string;
 }) {
   const params = new URLSearchParams({ range, bucket, category });
+  if (range === "custom") {
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
+  }
   return `/dashboard/trends?${params.toString()}`;
 }
 
@@ -168,8 +196,40 @@ function minIso(a: string, b: string) {
   return a < b ? a : b;
 }
 
+function parseDateParam(value: string | string[] | undefined) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : raw;
+}
+
 function rangeStart(range: RangeKey, today: string) {
-  return range === "all" ? null : addDays(today, -Number(range) + 1);
+  return range === "all" || range === "custom" ? null : addDays(today, -Number(range) + 1);
+}
+
+function resolveDateRange({
+  range,
+  today,
+  firstDate,
+  customStart,
+  customEnd,
+}: {
+  range: RangeKey;
+  today: string;
+  firstDate: string;
+  customStart: string | null;
+  customEnd: string | null;
+}): DateRange {
+  if (range === "custom") {
+    const rawStart = customStart ?? firstDate;
+    const rawEnd = customEnd ?? today;
+    return rawStart <= rawEnd
+      ? { start: rawStart, end: rawEnd }
+      : { start: rawEnd, end: rawStart };
+  }
+
+  const start = rangeStart(range, today);
+  return { start: start ? maxIso(start, firstDate) : firstDate, end: today };
 }
 
 function periodDays(start: string, end: string) {
@@ -181,20 +241,30 @@ function inPeriod(date: string | null, start: string, end: string) {
 }
 
 function startOfBucket(value: string, bucket: BucketMode) {
+  if (bucket === "day") return value;
+  if (bucket === "week") {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return addDays(value, -date.getUTCDay());
+  }
   return bucket === "year" ? `${value.slice(0, 4)}-01-01` : `${value.slice(0, 7)}-01`;
 }
 
 function bucketKey(value: string, bucket: BucketMode) {
+  if (bucket === "day") return value;
+  if (bucket === "week") return startOfBucket(value, bucket);
   return bucket === "year" ? value.slice(0, 4) : value.slice(0, 7);
 }
 
 function nextBucketStart(key: string, bucket: BucketMode) {
-  return bucket === "year"
-    ? `${Number(key) + 1}-01-01`
-    : addMonths(`${key}-01`, 1);
+  if (bucket === "day") return addDays(key, 1);
+  if (bucket === "week") return addDays(key, 7);
+  return bucket === "year" ? `${Number(key) + 1}-01-01` : addMonths(`${key}-01`, 1);
 }
 
 function bucketRange(key: string, bucket: BucketMode) {
+  if (bucket === "day" || bucket === "week") {
+    return { start: key, end: addDays(nextBucketStart(key, bucket), -1) };
+  }
   const start = bucket === "year" ? `${key}-01-01` : `${key}-01`;
   return { start, end: addDays(nextBucketStart(key, bucket), -1) };
 }
@@ -204,12 +274,14 @@ function buildBucketKeys(start: string, end: string, bucket: BucketMode) {
   let cursor = startOfBucket(start, bucket);
   while (cursor <= end) {
     keys.push(bucketKey(cursor, bucket));
-    cursor = bucket === "year" ? `${Number(cursor.slice(0, 4)) + 1}-01-01` : addMonths(cursor, 1);
+    cursor = nextBucketStart(bucketKey(cursor, bucket), bucket);
   }
   return keys;
 }
 
 function formatBucketLabel(key: string, bucket: BucketMode) {
+  if (bucket === "day") return formatShortDate(key);
+  if (bucket === "week") return `Week of ${formatShortDate(key)}`;
   if (bucket === "year") return key;
   return new Date(`${key}-01T00:00:00.000Z`).toLocaleDateString(undefined, {
     month: "short",
@@ -1150,18 +1222,21 @@ export default async function TrendsPage({
 }: {
   searchParams: Promise<{
     range?: string | string[];
+    start?: string | string[];
+    end?: string | string[];
     bucket?: string | string[];
     category?: string | string[];
   }>;
 }) {
   const params = await searchParams;
   const range = parseRange(params.range);
+  const customStart = parseDateParam(params.start);
+  const customEnd = parseDateParam(params.end);
   const bucket = parseBucket(params.bucket);
   const category = parseCategory(params.category);
   const cookieStore = await cookies();
   const timeZone = timeZoneFromCookie(cookieStore.get(TIME_ZONE_COOKIE)?.value);
   const today = todayIsoInTimeZone(timeZone);
-  const rawStart = rangeStart(range, today);
   const [rawReceipts, rawItems] = await getTrendRows();
   const receipts: ReceiptRow[] = rawReceipts.map((receipt) => ({
     ...receipt,
@@ -1179,16 +1254,16 @@ export default async function TrendsPage({
   const primaryReceipts = receipts.filter((receipt) => primaryReceiptIds.has(receipt.id));
   const datedReceipts = primaryReceipts.filter((receipt) => receipt.resolvedDate);
   const firstDate = datedReceipts.map((receipt) => receipt.resolvedDate).sort()[0] ?? today;
-  const start = rawStart ? maxIso(rawStart, firstDate) : firstDate;
-  const keys = buildBucketKeys(start, today, bucket);
-  const rangeReceipts = primaryReceipts.filter((receipt) => inPeriod(receipt.resolvedDate, start, today));
+  const { start, end } = resolveDateRange({ range, today, firstDate, customStart, customEnd });
+  const keys = buildBucketKeys(start, end, bucket);
+  const rangeReceipts = primaryReceipts.filter((receipt) => inPeriod(receipt.resolvedDate, start, end));
   const intervals = buildIntervals(primaryReceipts, itemsByReceiptId, primaryReceiptIds);
   const rows = buildTrendBuckets({
     keys,
     bucket,
     category,
     start,
-    end: today,
+    end,
     receipts: rangeReceipts,
     intervals,
     itemsByReceiptId,
@@ -1331,7 +1406,7 @@ export default async function TrendsPage({
         <div>
           <div className="flex items-center gap-2 text-sm text-zinc-500">
             <CalendarDays className="size-4" />
-            {formatShortDate(start)} - {formatShortDate(today)} · {timeZone}
+            {formatShortDate(start)} - {formatShortDate(end)} · {timeZone}
           </div>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal">Trends</h1>
         </div>
@@ -1340,13 +1415,47 @@ export default async function TrendsPage({
           <SegmentLinks
             options={RANGE_OPTIONS}
             value={range}
-            hrefFor={(nextRange) => trendsHref({ range: nextRange, bucket, category })}
+            hrefFor={(nextRange) => trendsHref({ range: nextRange, bucket, category, start, end })}
           />
           <SegmentLinks
             options={BUCKET_OPTIONS}
             value={bucket}
-            hrefFor={(nextBucket) => trendsHref({ range, bucket: nextBucket, category })}
+            hrefFor={(nextBucket) => trendsHref({ range, bucket: nextBucket, category, start, end })}
           />
+          <form
+            action="/dashboard/trends"
+            className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:w-auto"
+          >
+            <input type="hidden" name="range" value="custom" />
+            <input type="hidden" name="bucket" value={bucket} />
+            <input type="hidden" name="category" value={category} />
+            <label className="sr-only" htmlFor="trends-start">
+              Start
+            </label>
+            <input
+              id="trends-start"
+              name="start"
+              type="date"
+              defaultValue={start}
+              className="h-10 min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+            />
+            <label className="sr-only" htmlFor="trends-end">
+              End
+            </label>
+            <input
+              id="trends-end"
+              name="end"
+              type="date"
+              defaultValue={end}
+              className="h-10 min-w-0 rounded-md border border-zinc-200 bg-white px-2 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900"
+            />
+            <button
+              type="submit"
+              className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+            >
+              Apply
+            </button>
+          </form>
           <Link
             href="/dashboard"
             className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-zinc-200 bg-white px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 sm:w-auto"
@@ -1420,7 +1529,7 @@ export default async function TrendsPage({
               <SegmentLinks
                 options={CATEGORY_OPTIONS}
                 value={category}
-                hrefFor={(nextCategory) => trendsHref({ range, bucket, category: nextCategory })}
+                hrefFor={(nextCategory) => trendsHref({ range, bucket, category: nextCategory, start, end })}
               />
             </div>
             <SpendTrendRows
