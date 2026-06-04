@@ -1060,6 +1060,181 @@ function PivotLinks({
   );
 }
 
+function PivotInputForm({
+  range,
+  pivot,
+  anchorDays,
+  dailyCalories,
+  dailySpendTarget,
+  customAnchor,
+  customLabel,
+  customTarget,
+  customUnit,
+  start,
+  end,
+}: {
+  range: RangeKey;
+  pivot: PivotMode;
+  anchorDays: number;
+  dailyCalories: number;
+  dailySpendTarget: number;
+  customAnchor: boolean;
+  customLabel: string;
+  customTarget: number;
+  customUnit: string;
+  start: string;
+  end: string;
+}) {
+  const common = (
+    <>
+      <input type="hidden" name="range" value={range} />
+      {range === "custom" ? <input type="hidden" name="start" value={start} /> : null}
+      {range === "custom" ? <input type="hidden" name="end" value={end} /> : null}
+      <input type="hidden" name="pivot" value={pivot} />
+    </>
+  );
+  const customPreserve = (
+    <>
+      {customAnchor ? <input type="hidden" name="customAnchor" value="1" /> : null}
+      {customAnchor ? <input type="hidden" name="customLabel" value={customLabel} /> : null}
+      {customAnchor ? <input type="hidden" name="customTarget" value={customTarget} /> : null}
+      {customAnchor ? <input type="hidden" name="customUnit" value={customUnit} /> : null}
+    </>
+  );
+
+  if (pivot === "budget") {
+    return (
+      <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+        {common}
+        <input type="hidden" name="anchorDays" value={anchorDays} />
+        <input type="hidden" name="dailyCalories" value={dailyCalories} />
+        {customPreserve}
+        <label className="text-xs font-medium text-zinc-500" htmlFor="daily-spend-target">
+          $ / day
+        </label>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">$</span>
+            <input
+              id="daily-spend-target"
+              name="dailySpendTarget"
+              type="number"
+              min={1}
+              max={100000}
+              step={1}
+              defaultValue={dailySpendTarget}
+              className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 pl-7 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
+            />
+          </div>
+          <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+            Apply
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  if (pivot === "calories") {
+    return (
+      <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+        {common}
+        <input type="hidden" name="anchorDays" value={anchorDays} />
+        <input type="hidden" name="dailySpendTarget" value={dailySpendTarget} />
+        {customPreserve}
+        <label className="text-xs font-medium text-zinc-500" htmlFor="daily-calories">
+          Calories / day
+        </label>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <input
+            id="daily-calories"
+            name="dailyCalories"
+            type="number"
+            min={1}
+            max={10000}
+            step={50}
+            defaultValue={dailyCalories}
+            className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
+          />
+          <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+            Apply
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  if (pivot === "time") {
+    return (
+      <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+        {common}
+        <input type="hidden" name="dailyCalories" value={dailyCalories} />
+        <input type="hidden" name="dailySpendTarget" value={dailySpendTarget} />
+        {customPreserve}
+        <label className="text-xs font-medium text-zinc-500" htmlFor="anchor-days">
+          Days / receipt
+        </label>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <input
+            id="anchor-days"
+            name="anchorDays"
+            type="number"
+            min={1}
+            max={365}
+            step={1}
+            defaultValue={anchorDays}
+            className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
+          />
+          <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+            Apply
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+      {common}
+      <input type="hidden" name="anchorDays" value={anchorDays} />
+      <input type="hidden" name="dailyCalories" value={dailyCalories} />
+      <input type="hidden" name="dailySpendTarget" value={dailySpendTarget} />
+      <input type="hidden" name="customAnchor" value="1" />
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_90px_90px_auto]">
+        <label className="sr-only" htmlFor="custom-label">Custom label</label>
+        <input
+          id="custom-label"
+          name="customLabel"
+          type="text"
+          defaultValue={customLabel}
+          className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
+        />
+        <label className="sr-only" htmlFor="custom-target">Custom target</label>
+        <input
+          id="custom-target"
+          name="customTarget"
+          type="number"
+          min={0.01}
+          max={100000}
+          step={0.01}
+          defaultValue={customTarget}
+          className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
+        />
+        <label className="sr-only" htmlFor="custom-unit">Custom unit</label>
+        <input
+          id="custom-unit"
+          name="customUnit"
+          type="text"
+          defaultValue={customUnit}
+          className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
+        />
+        <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+          Apply
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function SectionHeader({
   title,
   href,
@@ -1219,6 +1394,15 @@ export default async function DashboardPage({
       return { receipt, totals, projection };
     })
     .slice(0, 8);
+  const knownCalories = periodTotals.calories;
+  const costPerDailyCalories =
+    knownCalories > 0 && periodSpend > 0 ? (periodSpend / knownCalories) * dailyCalories : null;
+  const caloriesForDailySpend =
+    knownCalories > 0 && periodSpend > 0 ? (knownCalories / periodSpend) * dailySpendTarget : null;
+  const budgetDaysUsed = dailySpendTarget > 0 && periodSpend > 0 ? periodSpend / dailySpendTarget : null;
+  const spendPerAnchorDay = anchorDays > 0 ? periodSpend / anchorDays : 0;
+  const caloriesPerAnchorDay = knownCalories > 0 && anchorDays > 0 ? knownCalories / anchorDays : null;
+  const customDaysUsed = customTarget > 0 && periodSpend > 0 ? periodSpend / customTarget : null;
   const totalItems = items.length;
   const datedRatio = primaryReceipts.length
     ? datedReceipts.length / primaryReceipts.length
@@ -1287,6 +1471,112 @@ export default async function DashboardPage({
   );
   const parsedScanCount = statusCount(ingestStatusRows, "parsed");
   const skippedScanCount = statusCount(ingestStatusRows, "skipped_not_receipt");
+
+  const pivotKpis: KpiCardModel[] =
+    pivot === "calories"
+      ? [
+          {
+            key: "pivot-cost-calories",
+            label: `Cost / ${formatMetric(dailyCalories)} cal`,
+            value: costPerDailyCalories == null ? "Needs nutrition" : formatMoney(costPerDailyCalories),
+            detail:
+              knownCalories > 0
+                ? `${formatMetric(knownCalories)} known calories across ${formatMoney(periodSpend)}`
+                : "Add nutrition matches to price calories.",
+            icon: <Utensils className="size-4" />,
+          },
+          {
+            key: "pivot-calorie-days",
+            label: "Calorie days",
+            value: calorieDays > 0 ? `${formatMetric(calorieDays)} days` : "Needs nutrition",
+            detail: `${formatMetric(dailyCalories)} cal/day target`,
+            icon: <CalendarDays className="size-4" />,
+          },
+          {
+            key: "pivot-budget-buys",
+            label: `${formatMoney(dailySpendTarget)}/day buys`,
+            value: caloriesForDailySpend == null ? "Needs nutrition" : `${formatMetric(caloriesForDailySpend)} cal`,
+            detail: "Calories estimated from this period's spend-to-calorie ratio.",
+            icon: <ShoppingBasket className="size-4" />,
+          },
+        ]
+      : pivot === "time"
+        ? [
+            {
+              key: "pivot-cost-days",
+              label: `Cost / ${formatMetric(anchorDays)} days`,
+              value: formatMoney(spendPerAnchorDay),
+              detail: `${formatMoney(periodSpend)} stretched over ${formatMetric(anchorDays)} days`,
+              icon: <CalendarDays className="size-4" />,
+            },
+            {
+              key: "pivot-calories-days",
+              label: "Calories/day anchor",
+              value: caloriesPerAnchorDay == null ? "Needs nutrition" : `${formatMetric(caloriesPerAnchorDay)} cal`,
+              detail: `${formatMetric(knownCalories)} known calories over ${formatMetric(anchorDays)} days`,
+              icon: <Utensils className="size-4" />,
+            },
+            {
+              key: "pivot-budget-days",
+              label: "Budget days used",
+              value: budgetDaysUsed == null ? "No spend" : `${formatMetric(budgetDaysUsed)} days`,
+              detail: `At ${formatMoney(dailySpendTarget)}/day`,
+              icon: <ShoppingBasket className="size-4" />,
+            },
+          ]
+        : pivot === "custom"
+          ? [
+              {
+                key: "pivot-custom-days",
+                label: `${customLabel} days`,
+                value: customDaysUsed == null ? "No spend" : `${formatMetric(customDaysUsed)} days`,
+                detail: `${formatMoney(periodSpend)} at ${formatCustomTarget(customTarget, customUnit)}`,
+                icon: <Gauge className="size-4" />,
+              },
+              {
+                key: "pivot-custom-share",
+                label: `${customLabel} used`,
+                value: formatPercent(periodSpend / Math.max(customPeriodAllowance, 1)),
+                detail: `${formatMoney(periodSpend)} vs ${formatMoney(customPeriodAllowance)} in this ${days}-day period`,
+                icon: <ShoppingBasket className="size-4" />,
+              },
+              {
+                key: "pivot-custom-calories",
+                label: `${customLabel} buys`,
+                value:
+                  knownCalories > 0 && periodSpend > 0
+                    ? `${formatMetric((knownCalories / periodSpend) * customTarget)} cal`
+                    : "Needs nutrition",
+                detail: "Calories estimated from this period's spend-to-calorie ratio.",
+                icon: <Utensils className="size-4" />,
+              },
+            ]
+          : [
+              {
+                key: "pivot-budget-calories",
+                label: `${formatMoney(dailySpendTarget)}/day buys`,
+                value: caloriesForDailySpend == null ? "Needs nutrition" : `${formatMetric(caloriesForDailySpend)} cal`,
+                detail: "Calories estimated from this period's spend-to-calorie ratio.",
+                icon: <ShoppingBasket className="size-4" />,
+              },
+              {
+                key: "pivot-budget-cost",
+                label: `Cost / ${formatMetric(dailyCalories)} cal`,
+                value: costPerDailyCalories == null ? "Needs nutrition" : formatMoney(costPerDailyCalories),
+                detail:
+                  knownCalories > 0
+                    ? `${formatMetric(knownCalories)} known calories across ${formatMoney(periodSpend)}`
+                    : "Add nutrition matches to price calories.",
+                icon: <Utensils className="size-4" />,
+              },
+              {
+                key: "pivot-budget-used",
+                label: "Spend vs target",
+                value: formatPercent(periodSpend / Math.max(periodBudgetAllowance, 1)),
+                detail: `${formatMoney(periodSpend)} vs ${formatMoney(periodBudgetAllowance)} for ${days} days`,
+                icon: <Gauge className="size-4" />,
+              },
+            ];
 
   const kpiCandidates: Array<KpiCardModel | null> = [
     periodSpend > 0
@@ -1362,7 +1652,7 @@ export default async function DashboardPage({
         }
       : null,
   ];
-  const kpis = kpiCandidates.filter((card): card is KpiCardModel => card !== null);
+  const kpis = [...pivotKpis, ...kpiCandidates.filter((card): card is KpiCardModel => card !== null)];
 
   return (
     <div className="space-y-5">
@@ -1404,19 +1694,6 @@ export default async function DashboardPage({
               </Link>
             ))}
           </div>
-          <PivotLinks
-            range={range}
-            pivot={pivot}
-            anchorDays={anchorDays}
-            dailyCalories={dailyCalories}
-            dailySpendTarget={dailySpendTarget}
-            customAnchor={customAnchor}
-            customLabel={customLabel}
-            customTarget={customTarget}
-            customUnit={customUnit}
-            start={start}
-            end={end}
-          />
           <form
             action="/dashboard"
             className="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 sm:w-auto"
@@ -1502,200 +1779,47 @@ export default async function DashboardPage({
           </div>
 
           <section className="min-w-0 rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex flex-col gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800 lg:flex-row lg:items-center lg:justify-between">
+            <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
               <div>
                 <h2 className="font-semibold">Pivot view</h2>
                 <p className="mt-1 text-sm text-zinc-500">
                   Choose the anchor that makes the receipt data easiest to reason about.
                 </p>
               </div>
-              <PivotLinks
-                range={range}
-                pivot={pivot}
-                anchorDays={anchorDays}
-                dailyCalories={dailyCalories}
-                dailySpendTarget={dailySpendTarget}
-                customAnchor={customAnchor}
-                customLabel={customLabel}
-                customTarget={customTarget}
-                customUnit={customUnit}
-                start={start}
-                end={end}
-                variant="section"
-              />
             </div>
             <div className="grid gap-4 p-4 xl:grid-cols-[minmax(280px,0.7fr)_minmax(0,1.3fr)]">
               <div className="space-y-3">
+                <PivotLinks
+                  range={range}
+                  pivot={pivot}
+                  anchorDays={anchorDays}
+                  dailyCalories={dailyCalories}
+                  dailySpendTarget={dailySpendTarget}
+                  customAnchor={customAnchor}
+                  customLabel={customLabel}
+                  customTarget={customTarget}
+                  customUnit={customUnit}
+                  start={start}
+                  end={end}
+                  variant="section"
+                />
+                <PivotInputForm
+                  range={range}
+                  pivot={pivot}
+                  anchorDays={anchorDays}
+                  dailyCalories={dailyCalories}
+                  dailySpendTarget={dailySpendTarget}
+                  customAnchor={customAnchor}
+                  customLabel={customLabel}
+                  customTarget={customTarget}
+                  customUnit={customUnit}
+                  start={start}
+                  end={end}
+                />
                 <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
                   <div className="text-xs font-medium uppercase text-zinc-500">{pivotSummary.label}</div>
                   <div className="mt-2 text-2xl font-semibold">{pivotSummary.value}</div>
                   <div className="mt-1 text-sm text-zinc-500">{pivotSummary.detail}</div>
-                </div>
-                <div className="grid gap-2">
-                  <div className="text-xs font-medium uppercase text-zinc-500">Anchor settings</div>
-                  <div className="grid gap-2">
-                    <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                      <input type="hidden" name="range" value={range} />
-                      {range === "custom" ? <input type="hidden" name="start" value={start} /> : null}
-                      {range === "custom" ? <input type="hidden" name="end" value={end} /> : null}
-                      <input type="hidden" name="pivot" value="budget" />
-                      <input type="hidden" name="anchorDays" value={anchorDays} />
-                      <input type="hidden" name="dailyCalories" value={dailyCalories} />
-                      {customAnchor ? <input type="hidden" name="customAnchor" value="1" /> : null}
-                      {customAnchor ? <input type="hidden" name="customLabel" value={customLabel} /> : null}
-                      {customAnchor ? <input type="hidden" name="customTarget" value={customTarget} /> : null}
-                      {customAnchor ? <input type="hidden" name="customUnit" value={customUnit} /> : null}
-                      <label className="text-xs font-medium text-zinc-500" htmlFor="daily-spend-target">
-                        $ / day
-                      </label>
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <div className="relative">
-                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-zinc-500">$</span>
-                          <input
-                            id="daily-spend-target"
-                            name="dailySpendTarget"
-                            type="number"
-                            min={1}
-                            max={100000}
-                            step={1}
-                            defaultValue={dailySpendTarget}
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 pl-7 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
-                          />
-                        </div>
-                        <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                          Apply
-                        </button>
-                      </div>
-                    </form>
-
-                    <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                      <input type="hidden" name="range" value={range} />
-                      {range === "custom" ? <input type="hidden" name="start" value={start} /> : null}
-                      {range === "custom" ? <input type="hidden" name="end" value={end} /> : null}
-                      <input type="hidden" name="pivot" value="calories" />
-                      <input type="hidden" name="anchorDays" value={anchorDays} />
-                      <input type="hidden" name="dailySpendTarget" value={dailySpendTarget} />
-                      {customAnchor ? <input type="hidden" name="customAnchor" value="1" /> : null}
-                      {customAnchor ? <input type="hidden" name="customLabel" value={customLabel} /> : null}
-                      {customAnchor ? <input type="hidden" name="customTarget" value={customTarget} /> : null}
-                      {customAnchor ? <input type="hidden" name="customUnit" value={customUnit} /> : null}
-                      <label className="text-xs font-medium text-zinc-500" htmlFor="daily-calories">
-                        Calories / day
-                      </label>
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <input
-                          id="daily-calories"
-                          name="dailyCalories"
-                          type="number"
-                          min={1}
-                          max={10000}
-                          step={50}
-                          defaultValue={dailyCalories}
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
-                        />
-                        <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                          Apply
-                        </button>
-                      </div>
-                    </form>
-
-                    <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                      <input type="hidden" name="range" value={range} />
-                      {range === "custom" ? <input type="hidden" name="start" value={start} /> : null}
-                      {range === "custom" ? <input type="hidden" name="end" value={end} /> : null}
-                      <input type="hidden" name="pivot" value="time" />
-                      <input type="hidden" name="dailyCalories" value={dailyCalories} />
-                      <input type="hidden" name="dailySpendTarget" value={dailySpendTarget} />
-                      {customAnchor ? <input type="hidden" name="customAnchor" value="1" /> : null}
-                      {customAnchor ? <input type="hidden" name="customLabel" value={customLabel} /> : null}
-                      {customAnchor ? <input type="hidden" name="customTarget" value={customTarget} /> : null}
-                      {customAnchor ? <input type="hidden" name="customUnit" value={customUnit} /> : null}
-                      <label className="text-xs font-medium text-zinc-500" htmlFor="anchor-days">
-                        Days / receipt
-                      </label>
-                      <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                        <input
-                          id="anchor-days"
-                          name="anchorDays"
-                          type="number"
-                          min={1}
-                          max={365}
-                          step={1}
-                          defaultValue={anchorDays}
-                          className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
-                        />
-                        <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                          Apply
-                        </button>
-                      </div>
-                    </form>
-
-                    {customAnchor ? (
-                      <form action="/dashboard" className="grid gap-2 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                        <input type="hidden" name="range" value={range} />
-                        {range === "custom" ? <input type="hidden" name="start" value={start} /> : null}
-                        {range === "custom" ? <input type="hidden" name="end" value={end} /> : null}
-                        <input type="hidden" name="pivot" value="custom" />
-                        <input type="hidden" name="anchorDays" value={anchorDays} />
-                        <input type="hidden" name="dailyCalories" value={dailyCalories} />
-                        <input type="hidden" name="dailySpendTarget" value={dailySpendTarget} />
-                        <input type="hidden" name="customAnchor" value="1" />
-                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_90px_90px_auto]">
-                          <label className="sr-only" htmlFor="custom-label">Custom label</label>
-                          <input
-                            id="custom-label"
-                            name="customLabel"
-                            type="text"
-                            defaultValue={customLabel}
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
-                          />
-                          <label className="sr-only" htmlFor="custom-target">Custom target</label>
-                          <input
-                            id="custom-target"
-                            name="customTarget"
-                            type="number"
-                            min={0.01}
-                            max={100000}
-                            step={0.01}
-                            defaultValue={customTarget}
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
-                          />
-                          <label className="sr-only" htmlFor="custom-unit">Custom unit</label>
-                          <input
-                            id="custom-unit"
-                            name="customUnit"
-                            type="text"
-                            defaultValue={customUnit}
-                            className="h-10 w-full rounded-md border border-zinc-200 bg-transparent px-3 text-sm outline-none focus:border-zinc-400 dark:border-zinc-800"
-                          />
-                          <button type="submit" className="h-10 rounded-md border border-zinc-200 px-3 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                            Apply
-                          </button>
-                        </div>
-                      </form>
-                    ) : (
-                      <Link
-                        href={dashboardHref({
-                          range,
-                          pivot: "custom",
-                          anchorDays,
-                          dailyCalories,
-                          dailySpendTarget,
-                          customAnchor: true,
-                          customLabel,
-                          customTarget,
-                          customUnit,
-                          start,
-                          end,
-                        })}
-                        prefetch={false}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 px-3 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                      >
-                        <Plus className="size-4" />
-                        Add custom
-                      </Link>
-                    )}
-                  </div>
                 </div>
               </div>
 

@@ -39,6 +39,9 @@ export default function RootLayout({
               <Link href="/receipts/calendar" className="hover:text-zinc-900 dark:hover:text-zinc-100">
                 Calendar
               </Link>
+              <Link href="/wiki" className="hover:text-zinc-900 dark:hover:text-zinc-100">
+                Eatpedia
+              </Link>
               <Link href="/email-parser" className="hover:text-zinc-900 dark:hover:text-zinc-100">
                 Email parser
               </Link>

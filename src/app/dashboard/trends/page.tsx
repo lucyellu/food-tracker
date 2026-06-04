@@ -933,6 +933,21 @@ function macroShares(totals: MetricTotals) {
   };
 }
 
+function nutritionScore(totals: MetricTotals) {
+  if (totals.calories <= 0) return 0;
+  const macro = macroShares(totals);
+  const proteinShare = macro.protein;
+  const proteinScore = Math.min(proteinShare / 0.22, 1) * 40;
+  const calorieScore = Math.min(totals.calories / 1500, 1) * 25;
+  const macroCoverage =
+    (totals.proteinG > 0 ? 1 : 0) +
+    (totals.carbsG > 0 ? 1 : 0) +
+    (totals.fatG > 0 ? 1 : 0);
+  const coverageScore = (macroCoverage / 3) * 25;
+  const alcoholPenalty = Math.min((totals.alcoholG * 7) / Math.max(totals.calories, 1), 0.4) * 25;
+  return Math.max(0, Math.min(100, proteinScore + calorieScore + coverageScore + 10 - alcoholPenalty));
+}
+
 function KpiCard({
   label,
   value,
@@ -1217,6 +1232,104 @@ function NutritionRows({ rows }: { rows: TrendBucket[] }) {
   );
 }
 
+function directionText(delta: number, formatter: (value: number) => string) {
+  if (Math.abs(delta) < 0.01) return "flat";
+  return `${delta > 0 ? "+" : ""}${formatter(delta)}`;
+}
+
+function DirectionMetricRow({
+  label,
+  value,
+  previous,
+  max,
+  color,
+  formatter,
+}: {
+  label: string;
+  value: number;
+  previous: number | null;
+  max: number;
+  color: string;
+  formatter: (value: number) => string;
+}) {
+  const delta = previous == null ? null : value - previous;
+  return (
+    <div className="grid grid-cols-[82px_minmax(0,1fr)_96px] items-center gap-2 sm:grid-cols-[120px_minmax(0,1fr)_120px]">
+      <div className="text-xs font-medium text-zinc-500">{label}</div>
+      <div className="h-3 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <div
+          className={`h-full rounded-full ${color}`}
+          style={{ width: `${Math.max((value / max) * 100, value > 0 ? 3 : 0)}%` }}
+        />
+      </div>
+      <div className="text-right">
+        <div className="text-xs font-semibold">{formatter(value)}</div>
+        <div className={`text-[11px] ${delta && delta > 0 ? "text-amber-600 dark:text-amber-300" : delta && delta < 0 ? "text-emerald-600 dark:text-emerald-300" : "text-zinc-400"}`}>
+          {delta == null ? "new" : directionText(delta, formatter)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DirectionTrendRows({ rows, budgetLabel }: { rows: TrendBucket[]; budgetLabel: string }) {
+  const visibleRows = rows
+    .filter((row) => row.selectedDailySpend > 0 || row.estimatedDaily.calories > 0 || nutritionScore(row.estimatedDaily) > 0)
+    .slice(-18);
+  const maxBudget = Math.max(...visibleRows.map((row) => row.selectedDailySpend), 1);
+  const maxCalories = Math.max(...visibleRows.map((row) => row.estimatedDaily.calories), 1);
+  const maxScore = Math.max(...visibleRows.map((row) => nutritionScore(row.estimatedDaily)), 1);
+
+  return (
+    <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+      {visibleRows.map((row, index) => {
+        const previous = index > 0 ? visibleRows[index - 1] : null;
+        const score = nutritionScore(row.estimatedDaily);
+        const previousScore = previous ? nutritionScore(previous.estimatedDaily) : null;
+        return (
+          <div key={row.key} className="grid gap-3 px-4 py-3 lg:grid-cols-[140px_minmax(0,1fr)] lg:items-center">
+            <div>
+              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{row.label}</div>
+              <div className="mt-1 text-xs text-zinc-500">{row.days} days · {row.receiptCount} receipts</div>
+            </div>
+            <div className="grid gap-2">
+              <DirectionMetricRow
+                label={budgetLabel}
+                value={row.selectedDailySpend}
+                previous={previous?.selectedDailySpend ?? null}
+                max={maxBudget}
+                color="bg-amber-500"
+                formatter={(value) => formatDailyMoney(value)}
+              />
+              <DirectionMetricRow
+                label="Calories"
+                value={row.estimatedDaily.calories}
+                previous={previous?.estimatedDaily.calories ?? null}
+                max={maxCalories}
+                color="bg-sky-500"
+                formatter={(value) => `${formatMetric(value, 0)} cal`}
+              />
+              <DirectionMetricRow
+                label="Nutrition score"
+                value={score}
+                previous={previousScore}
+                max={maxScore}
+                color="bg-emerald-500"
+                formatter={(value) => `${Math.round(value)}/100`}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {visibleRows.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm text-zinc-500">
+          Add dated receipts with nutrition matches to see direction charts.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default async function TrendsPage({
   searchParams,
 }: {
@@ -1296,9 +1409,12 @@ export default async function TrendsPage({
       ? otherControlledPair.latest.otherControlledDailyG - otherControlledPair.previous.otherControlledDailyG
       : 0;
   const nutritionPair = latestPair(rows, (row) => row.estimatedDaily.calories);
+  const nutritionScorePair = latestPair(rows, (row) => nutritionScore(row.estimatedDaily));
   const latestMacro = nutritionPair.latest ? macroShares(nutritionPair.latest.estimatedDaily) : null;
   const previousMacro = nutritionPair.previous ? macroShares(nutritionPair.previous.estimatedDaily) : null;
   const latestNutrition = nutritionPair.latest?.estimatedDaily ?? emptyTotals();
+  const latestNutritionScore = nutritionScorePair.latest ? nutritionScore(nutritionScorePair.latest.estimatedDaily) : 0;
+  const previousNutritionScore = nutritionScorePair.previous ? nutritionScore(nutritionScorePair.previous.estimatedDaily) : null;
   const selectedTotal = rows.reduce((sum, row) => sum + row.selectedSpend, 0);
   const controlledTotal = rows.reduce((sum, row) => sum + row.controlledSpend, 0);
   const cannabisTotal = rows.reduce((sum, row) => sum + row.cannabisG, 0);
@@ -1380,6 +1496,26 @@ export default async function TrendsPage({
             : `${formatGrams(otherControlledTotal)} total in range`,
           icon: <Pill className="size-4" />,
           tone: otherControlledDelta > 0 ? "amber" : otherControlledDelta < 0 ? "emerald" : "zinc",
+        }
+      : null,
+    nutritionScorePair.latest
+      ? {
+          key: "nutrition-score",
+          label: "Nutrition score",
+          value: `${Math.round(latestNutritionScore)}/100`,
+          detail:
+            previousNutritionScore == null
+              ? "Heuristic from calories, protein, macro coverage, and alcohol."
+              : `${latestNutritionScore - previousNutritionScore >= 0 ? "+" : ""}${Math.round(
+                  latestNutritionScore - previousNutritionScore,
+                )} vs ${nutritionScorePair.previous?.label}`,
+          icon: latestNutritionScore - (previousNutritionScore ?? latestNutritionScore) >= 0 ? <TrendingUp className="size-4" /> : <TrendingDown className="size-4" />,
+          tone:
+            previousNutritionScore == null
+              ? "zinc"
+              : latestNutritionScore >= previousNutritionScore
+                ? "emerald"
+                : "amber",
         }
       : null,
     {
@@ -1516,6 +1652,14 @@ export default async function TrendsPage({
                 <p className="mt-1">Other active amounts convert tracked milligrams to grams for comparison.</p>
               </div>
             </div>
+          </section>
+
+          <section className="min-w-0 rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+            <SectionHeader
+              title="Direction chart"
+              detail="Budget, calories, and a simple nutrition score by bucket, with deltas from the prior visible bucket."
+            />
+            <DirectionTrendRows rows={rows} budgetLabel={`${selectedLabel} / day`} />
           </section>
 
           <section className="min-w-0 rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
