@@ -16,14 +16,14 @@ export type LlmProviderStatus = {
 type ProviderDefinition = {
   key: string;
   label: string;
-  apiKeyEnv?: string;
+  apiKeyEnv?: string | string[];
   baseUrlEnv?: string;
   baseUrl?: string;
   modelEnv?: string;
   defaultModel: string;
   role: string;
   env: string;
-  kind: "openai-compatible" | "gemini" | "gateway";
+  kind: "openai-compatible" | "gemini" | "gateway" | "google-vision";
 };
 
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -31,6 +31,15 @@ const REQUEST_TIMEOUT_MS = 20_000;
 function env(name: string) {
   const value = process.env[name]?.trim();
   return value || null;
+}
+
+function firstEnv(names: string | string[] | undefined) {
+  const candidates = Array.isArray(names) ? names : names ? [names] : [];
+  for (const name of candidates) {
+    const value = env(name);
+    if (value) return value;
+  }
+  return null;
 }
 
 function providerDefinitions(): ProviderDefinition[] {
@@ -68,6 +77,15 @@ function providerDefinitions(): ProviderDefinition[] {
       kind: "gemini",
     },
     {
+      key: "google_vision",
+      label: "Google Vision",
+      apiKeyEnv: ["GOOGLE_CLOUD_VISION_API_KEY", "GOOGLE_VISION_API_KEY"],
+      defaultModel: "DOCUMENT_TEXT_DETECTION + WEB_DETECTION",
+      role: "Image OCR and reverse image fallback",
+      env: "GOOGLE_CLOUD_VISION_API_KEY / GOOGLE_VISION_API_KEY",
+      kind: "google-vision",
+    },
+    {
       key: "deepseek",
       label: "DeepSeek",
       apiKeyEnv: "DEEPSEEK_API_KEY",
@@ -91,7 +109,7 @@ function providerDefinitions(): ProviderDefinition[] {
 }
 
 function configured(definition: ProviderDefinition) {
-  return definition.baseUrlEnv ? Boolean(env(definition.baseUrlEnv)) : Boolean(definition.apiKeyEnv && env(definition.apiKeyEnv));
+  return definition.baseUrlEnv ? Boolean(env(definition.baseUrlEnv)) : Boolean(firstEnv(definition.apiKeyEnv));
 }
 
 function modelFor(definition: ProviderDefinition) {
@@ -166,7 +184,7 @@ function stateForStatus(status: number, ok: boolean): LlmProviderState {
 }
 
 async function testOpenAiCompatible(definition: ProviderDefinition): Promise<LlmProviderStatus> {
-  const apiKey = definition.apiKeyEnv ? env(definition.apiKeyEnv) : env("AI_FREE_API_KEY") || "local-dev";
+  const apiKey = definition.apiKeyEnv ? firstEnv(definition.apiKeyEnv) : env("AI_FREE_API_KEY") || "local-dev";
   const baseUrl = definition.baseUrlEnv ? env(definition.baseUrlEnv) : definition.baseUrl;
   const baseStatus = getLlmProviderStatuses().find((status) => status.key === definition.key);
   if (!baseStatus || !baseUrl || (definition.apiKeyEnv && !apiKey)) {
@@ -214,7 +232,7 @@ async function testOpenAiCompatible(definition: ProviderDefinition): Promise<Llm
 
 async function testGemini(definition: ProviderDefinition): Promise<LlmProviderStatus> {
   const baseStatus = getLlmProviderStatuses().find((status) => status.key === definition.key);
-  const apiKey = definition.apiKeyEnv ? env(definition.apiKeyEnv) : null;
+  const apiKey = firstEnv(definition.apiKeyEnv);
   if (!baseStatus || !apiKey) {
     return baseStatus ?? {
       key: definition.key,
@@ -255,6 +273,54 @@ async function testGemini(definition: ProviderDefinition): Promise<LlmProviderSt
   }
 }
 
+async function testGoogleVision(definition: ProviderDefinition): Promise<LlmProviderStatus> {
+  const baseStatus = getLlmProviderStatuses().find((status) => status.key === definition.key);
+  const apiKey = firstEnv(definition.apiKeyEnv);
+  if (!baseStatus || !apiKey) {
+    return baseStatus ?? {
+      key: definition.key,
+      label: definition.label,
+      state: "not_set",
+      configured: false,
+      model: modelFor(definition),
+      role: definition.role,
+      env: definition.env,
+      note: `${definition.env} not set`,
+    };
+  }
+
+  try {
+    const result = await fetchJson(`https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        requests: [
+          {
+            image: {
+              content:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+            },
+            features: [{ type: "LABEL_DETECTION", maxResults: 1 }],
+          },
+        ],
+      }),
+    });
+    return {
+      ...baseStatus,
+      state: stateForStatus(result.status, result.ok),
+      connected: result.ok,
+      status: result.status,
+      note: providerNote(result.status, result.ok, result.data),
+    };
+  } catch (error) {
+    return {
+      ...baseStatus,
+      state: "not_connected",
+      note: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function checkLlmProviderConnections() {
   return Promise.all(
     providerDefinitions().map((definition) => {
@@ -262,6 +328,7 @@ export async function checkLlmProviderConnections() {
         return Promise.resolve(getLlmProviderStatuses().find((status) => status.key === definition.key)!);
       }
       if (definition.kind === "gemini") return testGemini(definition);
+      if (definition.kind === "google-vision") return testGoogleVision(definition);
       return testOpenAiCompatible(definition);
     }),
   );

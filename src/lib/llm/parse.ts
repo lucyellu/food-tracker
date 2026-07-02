@@ -12,6 +12,7 @@ import {
   extractTextWithGoogleVision,
   isGoogleVisionOcrConfigured,
 } from "@/lib/ocr/google-vision";
+import { reverseGoogleImageSearch } from "@/lib/products/reverse-image-search";
 import { parsePriceSmartOrderText } from "@/lib/receipts/pricesmart";
 import { parseTntPackedOrderEmail } from "@/lib/receipts/tnt-email";
 import { parseUberEatsOrderText } from "@/lib/receipts/uber-eats";
@@ -78,24 +79,46 @@ async function parseTextReceipt(text: string): Promise<ParsedReceipt> {
   }
 }
 
+async function parseImageReceipt(bytes: Uint8Array, mimeType: string): Promise<ParsedReceipt> {
+  if (!isGoogleVisionOcrConfigured()) {
+    throw new Error(
+      "GOOGLE_CLOUD_VISION_API_KEY is not set — image receipts need Cloud Vision OCR.",
+    );
+  }
+
+  const ocrText = (await extractTextWithGoogleVision(bytes, mimeType))?.trim() ?? "";
+  let parsed: ParsedReceipt | null = null;
+
+  if (ocrText) {
+    parsed = await parseTextReceipt(ocrText);
+    if (parsed.is_receipt) return parsed;
+  }
+
+  const reverse = await reverseGoogleImageSearch(bytes, mimeType);
+  if (!reverse.fallbackText) {
+    if (parsed) return parsed;
+    throw new Error("Google Vision OCR returned no text for this image.");
+  }
+
+  const fallbackText = [
+    ocrText ? `Visible OCR text:\n${ocrText}` : null,
+    `Reverse image search fallback:\n${reverse.fallbackText}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  return parseTextReceipt(fallbackText);
+}
+
 export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
   if (input.kind === "text") {
     return parseTextReceipt(input.text);
   }
   if (input.kind === "image") {
-    // Images go through Google Cloud Vision OCR, then the text parser — no Gemini
-    // vision. The OCR'd text is handed to the same text path (DeepSeek/Gemini-text)
-    // that handles email bodies.
-    if (!isGoogleVisionOcrConfigured()) {
-      throw new Error(
-        "GOOGLE_CLOUD_VISION_API_KEY is not set — image receipts need Cloud Vision OCR.",
-      );
-    }
-    const ocrText = await extractTextWithGoogleVision(input.bytes, input.mimeType);
-    if (!ocrText?.trim()) {
-      throw new Error("Google Vision OCR returned no text for this image.");
-    }
-    return parseTextReceipt(ocrText);
+    // Images go through Google Cloud Vision OCR, then the text parser. If OCR is
+    // empty or the text parser rejects it, Vision Web Detection adds reverse-image
+    // clues for bottle/can/product labels before retrying.
+    return parseImageReceipt(input.bytes, input.mimeType);
   }
   // PDFs can't be OCR'd inline by the Vision sync API, so they still use Gemini.
   // If Gemini rate-limits, trip the circuit (so future text emails route to DeepSeek)

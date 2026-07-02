@@ -211,25 +211,27 @@ function resolveDateRange({
   range,
   today,
   firstDate,
+  lastDate,
   customStart,
   customEnd,
 }: {
   range: RangeKey;
   today: string;
   firstDate: string;
+  lastDate: string;
   customStart: string | null;
   customEnd: string | null;
 }): DateRange {
   if (range === "custom") {
     const rawStart = customStart ?? firstDate;
-    const rawEnd = customEnd ?? today;
+    const rawEnd = customEnd ?? lastDate;
     return rawStart <= rawEnd
       ? { start: rawStart, end: rawEnd }
       : { start: rawEnd, end: rawStart };
   }
 
   const start = rangeStart(range, today);
-  return { start: start ? maxIso(start, firstDate) : firstDate, end: today };
+  return { start: start ? maxIso(start, firstDate) : firstDate, end: maxIso(today, lastDate) };
 }
 
 function periodDays(start: string, end: string) {
@@ -237,7 +239,8 @@ function periodDays(start: string, end: string) {
 }
 
 function inPeriod(date: string | null, start: string, end: string) {
-  return Boolean(date && date >= start && date <= end);
+  const relaxedEnd = addDays(end, 2);
+  return Boolean(date && date >= start && date <= relaxedEnd);
 }
 
 function startOfBucket(value: string, bucket: BucketMode) {
@@ -1366,8 +1369,11 @@ export default async function TrendsPage({
   const primaryReceiptIds = buildPrimaryReceiptIds(receipts, duplicateGroups);
   const primaryReceipts = receipts.filter((receipt) => primaryReceiptIds.has(receipt.id));
   const datedReceipts = primaryReceipts.filter((receipt) => receipt.resolvedDate);
-  const firstDate = datedReceipts.map((receipt) => receipt.resolvedDate).sort()[0] ?? today;
-  const { start, end } = resolveDateRange({ range, today, firstDate, customStart, customEnd });
+  const firstDate =
+    datedReceipts.map((receipt) => receipt.resolvedDate).sort()[0] ?? today;
+  const lastDate =
+    datedReceipts.map((receipt) => receipt.resolvedDate).sort().pop() ?? today;
+  const { start, end } = resolveDateRange({ range, today, firstDate, lastDate, customStart, customEnd });
   const keys = buildBucketKeys(start, end, bucket);
   const rangeReceipts = primaryReceipts.filter((receipt) => inPeriod(receipt.resolvedDate, start, end));
   const intervals = buildIntervals(primaryReceipts, itemsByReceiptId, primaryReceiptIds);

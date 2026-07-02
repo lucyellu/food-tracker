@@ -3,6 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 
+const WIKI_CACHE_VERSION = "wiki-classifier-v4";
+
 export type WikiKind = "product" | "brand" | "ingredient" | "nutrient" | "category" | "strain" | "bottle";
 
 export const WIKI_KINDS: Array<{ key: WikiKind; label: string; plural: string }> = [
@@ -53,6 +55,11 @@ export type WikiEntry = {
   related: Array<{ kind: WikiKind; title: string; href: string }>;
   occurrences: WikiOccurrence[];
 };
+
+export type WikiIndexEntry = Pick<
+  WikiEntry,
+  "kind" | "slug" | "href" | "title" | "subtitle" | "summary" | "count" | "totalSpend" | "imageUrl"
+>;
 
 type WikiSourceRow = {
   lineItemId: number;
@@ -119,8 +126,18 @@ const NUTRIENTS: Array<{
 
 const CANNABIS_SIGNAL_RE =
   /\b(thc|cbd|cbn|cbg|flower|pre[-\s]?roll|preroll|indica|sativa|hybrid|rosin|hash|vape|cart|edible|gumm(?:y|ies)|joint|dutch\s*love)\b/i;
+const CANNABIS_STRONG_SIGNAL_RE =
+  /\b(thc|cbd|cbn|cbg|cannabinoid|terpene|cannabis|marijuana|pre[-\s]?roll|preroll|indica|sativa|hybrid|rosin|hash|vape|cart|edible|gumm(?:y|ies)|joint|dutch\s*love)\b/i;
+const CANNABIS_VENDOR_RE = /\b(dutch\s*love|la\s*canapa|dispensary|cannabis|weed\s*me|pure\s*sunfarms)\b/i;
+const CANNABIS_FOOD_CONTEXT_RE =
+  /\b(cilantro|parsley|basil|mint|dill|thyme|rosemary|oregano|chive|scallion|lettuce|spinach|broccoli|cauliflower|shrimp|prawn|seafood|fish|chicken|beef|pork|tofu|sauce|spice|seasoning|mustard|tea|coffee)\b/i;
 const ALCOHOL_SIGNAL_RE =
-  /\b(wine|beer|cider|vodka|gin|rum|whisk(?:y|ey)|tequila|liqueur|cocktail|cooler|seltzer|lager|ale|ipa|merlot|pinot|cabernet|chardonnay|riesling|malbec|syrah|sauvignon|bordeaux|rioja)\b/i;
+  /\b(wine|beer|cider|vodka|gin|rum|whisk(?:y|ey)|tequila|liqueur|lager|ipa|merlot|pinot|cabernet|chardonnay|riesling|malbec|syrah|sauvignon|bordeaux|rioja)\b/i;
+const AMBIGUOUS_ALCOHOL_SIGNAL_RE = /\b(ale|cocktail|cooler|seltzer)\b/i;
+const ALCOHOL_VENDOR_RE = /\b(liquor|wine|beer|spirits|bottle\s*depot)\b/i;
+const ALCOHOL_STRENGTH_RE = /\b(?:abv|alc(?:ohol)?(?:\s*\/\s*vol)?|% alc|alc\.?)\b/i;
+const ALCOHOL_FOOD_CONTEXT_RE =
+  /\b(cooking\s*wine|rice\s*wine|shaoxing|huangjiu|mei\s*kuei\s*lu|wine\s*vinegar|vinegar|wine\s*sauce|vodka\s*sauce|beer\s*mustard|ginger\s*ale|tomato\s*cocktail|clamato|mocktail|non[-\s]?alcoholic)\b/i;
 
 const EMPTY_NUTRITION: WikiNutrition = {
   totalGrams: null,
@@ -299,13 +316,65 @@ function rowSearchText(row: WikiSourceRow) {
     .join(" ");
 }
 
+function rowSignalText(row: WikiSourceRow) {
+  return [
+    row.rawName,
+    row.normalizedName,
+    row.itemBrand,
+    row.productName,
+    row.productBrand,
+    row.vendor,
+  ]
+    .map((value) => value ?? "")
+    .join(" ");
+}
+
+function rowVendorText(row: WikiSourceRow) {
+  return [row.vendor, row.itemBrand, row.productBrand]
+    .map((value) => value ?? "")
+    .join(" ");
+}
+
+function hasCannabisActiveIngredients(row: WikiSourceRow) {
+  const active = parseActiveIngredients(row.activeIngredientsJson);
+  return Boolean(
+    (active.thcMg != null && active.thcMg > 0) ||
+      (active.cbdMg != null && active.cbdMg > 0) ||
+      CANNABIS_STRONG_SIGNAL_RE.test(row.activeIngredientsJson ?? ""),
+  );
+}
+
 function isCannabisRow(row: WikiSourceRow) {
-  return rowCategory(row).toLowerCase() === "cannabis" || CANNABIS_SIGNAL_RE.test(rowSearchText(row));
+  const category = rowCategory(row).toLowerCase();
+  const haystack = rowSearchText(row);
+  const signalText = rowSignalText(row);
+  const vendorText = rowVendorText(row);
+  const hasActive = hasCannabisActiveIngredients(row);
+  const hasVendor = CANNABIS_VENDOR_RE.test(vendorText);
+  const hasStrongSignal = CANNABIS_STRONG_SIGNAL_RE.test(signalText);
+  const hasWeakSignal = CANNABIS_SIGNAL_RE.test(signalText);
+  const looksLikeFood = CANNABIS_FOOD_CONTEXT_RE.test(haystack);
+
+  if (looksLikeFood && !hasActive && !hasVendor) return false;
+  if (category === "cannabis") return hasActive || hasVendor || (hasStrongSignal && !looksLikeFood);
+  return hasActive || hasVendor || hasStrongSignal || (hasWeakSignal && category !== "food" && category !== "drink");
 }
 
 function isAlcoholRow(row: WikiSourceRow) {
   const category = rowCategory(row).toLowerCase();
-  return category === "alcohol" || category === "wine" || ALCOHOL_SIGNAL_RE.test(rowSearchText(row));
+  const haystack = rowSearchText(row);
+  const signalText = rowSignalText(row);
+  const vendorText = rowVendorText(row);
+  const looksLikeFood = ALCOHOL_FOOD_CONTEXT_RE.test(haystack);
+  const hasVendor = ALCOHOL_VENDOR_RE.test(vendorText);
+  const hasStrength = ALCOHOL_STRENGTH_RE.test(signalText);
+  const hasDirectSignal = ALCOHOL_SIGNAL_RE.test(signalText);
+  const hasAmbiguousSignal = AMBIGUOUS_ALCOHOL_SIGNAL_RE.test(signalText);
+
+  if (looksLikeFood) return false;
+  if (category === "alcohol" || category === "wine") return true;
+  if (hasDirectSignal) return true;
+  return hasAmbiguousSignal && (hasVendor || hasStrength);
 }
 
 function specialtyTitle(row: WikiSourceRow) {
@@ -455,7 +524,7 @@ async function getWikiRows() {
     .orderBy(desc(schema.lineItems.id));
 }
 
-function buildEntries(rows: WikiSourceRow[]) {
+function buildEntries(rows: WikiSourceRow[], options: { includeDetails?: boolean } = {}) {
   const map = new Map<string, EntryAccumulator>();
 
   for (const row of rows) {
@@ -505,15 +574,29 @@ function buildEntries(rows: WikiSourceRow[]) {
       latestDate: latestDate(entry.rows),
       imageUrl: entry.imageUrl,
       nutrition,
-      related: relatedForEntry(entry.kind, entry.rows, entry.slug),
-      occurrences: examples(entry.rows),
+      related: options.includeDetails ? relatedForEntry(entry.kind, entry.rows, entry.slug) : [],
+      occurrences: options.includeDetails ? examples(entry.rows) : [],
     };
   });
 }
 
+function compactWikiEntry(entry: WikiEntry): WikiIndexEntry {
+  return {
+    kind: entry.kind,
+    slug: entry.slug,
+    href: entry.href,
+    title: entry.title,
+    subtitle: entry.subtitle,
+    summary: entry.summary,
+    count: entry.count,
+    totalSpend: entry.totalSpend,
+    imageUrl: entry.imageUrl,
+  };
+}
+
 async function buildWikiIndex() {
   const rows = await getWikiRows();
-  const entries = buildEntries(rows);
+  const entries = buildEntries(rows).map(compactWikiEntry);
   return {
     entries,
     counts: Object.fromEntries(
@@ -522,16 +605,23 @@ async function buildWikiIndex() {
   };
 }
 
-export const getWikiIndex = unstable_cache(buildWikiIndex, ["wiki-index"], {
+export const getWikiIndex = unstable_cache(buildWikiIndex, ["wiki-index", WIKI_CACHE_VERSION], {
   tags: [FOOD_DATA_CACHE_TAG],
   revalidate: FOOD_DATA_CACHE_SECONDS,
 });
 
-export async function getWikiEntry(kind: WikiKind, slug: string) {
-  const index = await getWikiIndex();
-  return index.entries.find((entry) => entry.kind === kind && entry.slug === slug) ?? null;
-}
+export const getWikiEntry = unstable_cache(
+  async (kind: WikiKind, slug: string) => {
+    const rows = await getWikiRows();
+    return buildEntries(rows, { includeDetails: true }).find((entry) => entry.kind === kind && entry.slug === slug) ?? null;
+  },
+  ["wiki-entry", WIKI_CACHE_VERSION],
+  {
+    tags: [FOOD_DATA_CACHE_TAG],
+    revalidate: FOOD_DATA_CACHE_SECONDS,
+  },
+);
 
-export function sortWikiEntries(entries: WikiEntry[]) {
+export function sortWikiEntries<T extends Pick<WikiEntry, "count" | "totalSpend" | "title">>(entries: T[]) {
   return [...entries].sort((a, b) => b.count - a.count || b.totalSpend - a.totalSpend || a.title.localeCompare(b.title));
 }

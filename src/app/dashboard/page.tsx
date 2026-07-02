@@ -258,24 +258,26 @@ function resolveDateRange({
   range,
   today,
   firstDate,
+  lastDate,
   customStart,
   customEnd,
 }: {
   range: RangeKey;
   today: string;
   firstDate: string;
+  lastDate: string;
   customStart: string | null;
   customEnd: string | null;
 }): DateRange {
   if (range === "custom") {
     const rawStart = customStart ?? firstDate;
-    const rawEnd = customEnd ?? today;
+    const rawEnd = customEnd ?? lastDate;
     return rawStart <= rawEnd
       ? { start: rawStart, end: rawEnd }
       : { start: rawEnd, end: rawStart };
   }
 
-  return { start: rangeStart(range, today) ?? firstDate, end: today };
+  return { start: rangeStart(range, today) ?? firstDate, end: maxIso(today, lastDate) };
 }
 
 function periodDays(start: string | null, end: string) {
@@ -283,7 +285,10 @@ function periodDays(start: string | null, end: string) {
 }
 
 function inPeriod(date: string | null, start: string | null, end: string) {
-  return Boolean(date && (!start || date >= start) && date <= end);
+  // Allow up to 2 days in the future to account for UTC vs local timezone differences
+  // on receipts processed late at night.
+  const relaxedEnd = addDays(end, 2);
+  return Boolean(date && (!start || date >= start) && date <= relaxedEnd);
 }
 
 function formatMoney(value: number) {
@@ -1309,7 +1314,9 @@ export default async function DashboardPage({
   const datedReceipts = primaryReceipts.filter((receipt) => receipt.resolvedDate);
   const firstDate =
     datedReceipts.map((receipt) => receipt.resolvedDate).sort()[0] ?? today;
-  const { start, end } = resolveDateRange({ range, today, firstDate, customStart, customEnd });
+  const lastDate =
+    datedReceipts.map((receipt) => receipt.resolvedDate).sort().pop() ?? today;
+  const { start, end } = resolveDateRange({ range, today, firstDate, lastDate, customStart, customEnd });
   const days = periodDays(start, end);
   const periodReceipts = primaryReceipts.filter((receipt) =>
     inPeriod(receipt.resolvedDate, start, end),

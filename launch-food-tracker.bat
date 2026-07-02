@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set PORT=3010
+set PORT=3000
 set DIR=%~dp0
 set APP_URL=http://localhost:%PORT%/dashboard
 set LOCAL_DB=%DIR%tmp\food-tracker-local.db

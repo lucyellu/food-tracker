@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { BookOpen, Search, Sparkles } from "lucide-react";
-import { getWikiIndex, isWikiKind, sortWikiEntries, WIKI_KINDS, wikiKindPlural, type WikiEntry, type WikiKind } from "@/lib/wiki";
+import { getWikiIndex, isWikiKind, sortWikiEntries, WIKI_KINDS, wikiKindPlural, type WikiIndexEntry, type WikiKind } from "@/lib/wiki";
 import { WikiMemoryPanel } from "./WikiMemory";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ function kindHref(kind: WikiKind | "all", q: string) {
   return query ? `/wiki?${query}` : "/wiki";
 }
 
-function EntryCard({ entry }: { entry: WikiEntry }) {
+function EntryCard({ entry }: { entry: WikiIndexEntry }) {
   return (
     <Link
       href={entry.href}
