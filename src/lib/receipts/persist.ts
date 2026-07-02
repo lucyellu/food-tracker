@@ -7,6 +7,7 @@ import {
 import { cannabisNutritionForParsedItem } from "@/lib/receipts/cannabis";
 import { categorizeItem } from "@/lib/products/category";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
+import { enrichReceiptNutrition } from "@/lib/nutrition/usda";
 
 type PersistReceiptInput = {
   parsed: ParsedReceipt;
@@ -94,6 +95,12 @@ export async function persistParsedReceipt({
     if (nutritionRows.length > 0) {
       await db.insert(schema.nutritionFacts).values(nutritionRows);
     }
+    
+    // Automatically trigger USDA enrichment so the user doesn't have to click a button manually.
+    // It utilizes the local cache, so this is fast for repeated items.
+    await enrichReceiptNutrition(receipt.id).catch(err => {
+      console.error("Auto-nutrition enrich failed for receipt", receipt.id, err);
+    });
   }
 
   return receipt;
