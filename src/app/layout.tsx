@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import { AppNav } from "@/components/kitchen/AppNav";
 import { TimezoneCookieSync } from "@/components/TimezoneCookieSync";
+import { TILE_STYLE_COOKIE, isTileStyle } from "@/lib/tiles";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -17,14 +19,17 @@ export const metadata: Metadata = {
   description: "A pantry that fills itself from your grocery receipts",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const saved = (await cookies()).get(TILE_STYLE_COOKIE)?.value;
+  const tiles = isTileStyle(saved) ? saved : "colour";
   return (
     <html
       lang="en"
+      data-tiles={tiles}
       className={`h-full antialiased ${fraunces.variable} ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="min-h-full overflow-x-hidden flex flex-col bg-paper text-ink font-sans">

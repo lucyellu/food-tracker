@@ -1,10 +1,14 @@
+import { cookies } from "next/headers";
+import { TILE_STYLE_COOKIE, isTileStyle } from "@/lib/tiles";
 import { authEnabled } from "@/lib/auth/session";
 import { SettingsGmailPanel } from "./SettingsGmailPanel";
 import { SettingsDataPanel } from "./SettingsDataPanel";
 import { SettingsLlmPanel } from "./SettingsLlmPanel";
 import { SettingsTimezonePanel } from "./SettingsTimezonePanel";
+import { SettingsAppearancePanel } from "./SettingsAppearancePanel";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const saved = (await cookies()).get(TILE_STYLE_COOKIE)?.value;
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <div>
@@ -23,6 +27,7 @@ export default function SettingsPage() {
       </div>
       <SettingsGmailPanel />
       <SettingsLlmPanel />
+      <SettingsAppearancePanel initial={isTileStyle(saved) ? saved : "colour"} />
       <SettingsTimezonePanel />
       <SettingsDataPanel />
     </div>
