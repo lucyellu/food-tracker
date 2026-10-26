@@ -593,6 +593,10 @@ function itemTotals(item: ItemRow) {
 }
 
 function isCannabisItem(item: ItemRow, totals = emptyTotals(), meta = parseMeta(item.activeIngredientsJson)) {
+  const textToMatch = `${item.receiptVendor ?? ""} ${item.rawName}`;
+  const signalMatch = ACTIVE_ITEM_SIGNAL_RE.test(textToMatch);
+  const isFalsePositive = signalMatch && /\b(pork blood|joint pain|hash brown|hashbrown)\b/i.test(textToMatch);
+
   return (
     item.category === "cannabis" ||
     item.catalogCategory === "cannabis" ||
@@ -602,7 +606,7 @@ function isCannabisItem(item: ItemRow, totals = emptyTotals(), meta = parseMeta(
     totals.cbnMg > 0 ||
     totals.cbgMg > 0 ||
     totals.terpeneMg > 0 ||
-    ACTIVE_ITEM_SIGNAL_RE.test(`${item.receiptVendor ?? ""} ${item.rawName}`)
+    (signalMatch && !isFalsePositive)
   );
 }
 
