@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { Fraunces, Geist, Geist_Mono } from "next/font/google";
 import { AppNav } from "@/components/kitchen/AppNav";
 import { TimezoneCookieSync } from "@/components/TimezoneCookieSync";
-import { TILE_STYLE_COOKIE, isTileStyle } from "@/lib/tiles";
+import { THEME_COOKIE, TILE_STYLE_COOKIE, isTheme, isTileStyle } from "@/lib/tiles";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -24,12 +24,16 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const saved = (await cookies()).get(TILE_STYLE_COOKIE)?.value;
+  const jar = await cookies();
+  const saved = jar.get(TILE_STYLE_COOKIE)?.value;
   const tiles = isTileStyle(saved) ? saved : "colour";
+  const savedTheme = jar.get(THEME_COOKIE)?.value;
+  const theme = isTheme(savedTheme) && savedTheme !== "auto" ? savedTheme : undefined;
   return (
     <html
       lang="en"
       data-tiles={tiles}
+      data-theme={theme}
       className={`h-full antialiased ${fraunces.variable} ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="min-h-full overflow-x-hidden flex flex-col bg-paper text-ink font-sans">

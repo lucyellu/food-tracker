@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { TILE_STYLE_COOKIE, isTileStyle } from "@/lib/tiles";
+import { THEME_COOKIE, TILE_STYLE_COOKIE, isTheme, isTileStyle } from "@/lib/tiles";
 import { authEnabled } from "@/lib/auth/session";
 import { SettingsGmailPanel } from "./SettingsGmailPanel";
 import { SettingsDataPanel } from "./SettingsDataPanel";
@@ -8,7 +8,9 @@ import { SettingsTimezonePanel } from "./SettingsTimezonePanel";
 import { SettingsAppearancePanel } from "./SettingsAppearancePanel";
 
 export default async function SettingsPage() {
-  const saved = (await cookies()).get(TILE_STYLE_COOKIE)?.value;
+  const jar = await cookies();
+  const saved = jar.get(TILE_STYLE_COOKIE)?.value;
+  const savedTheme = jar.get(THEME_COOKIE)?.value;
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <div>
@@ -27,7 +29,10 @@ export default async function SettingsPage() {
       </div>
       <SettingsGmailPanel />
       <SettingsLlmPanel />
-      <SettingsAppearancePanel initial={isTileStyle(saved) ? saved : "colour"} />
+      <SettingsAppearancePanel
+        initialTiles={isTileStyle(saved) ? saved : "colour"}
+        initialTheme={isTheme(savedTheme) ? savedTheme : "auto"}
+      />
       <SettingsTimezonePanel />
       <SettingsDataPanel />
     </div>
