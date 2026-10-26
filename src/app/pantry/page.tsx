@@ -37,7 +37,7 @@ export default async function PantryPage() {
             <SectionHeader title={zone.label} note={`${zone.entries.length} · ${zone.note}`} />
             <div className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-4 sm:gap-x-5 lg:grid-cols-6">
               {zone.entries.map((entry) => (
-                <FoodTile key={entry.food.id} entry={entry} />
+                <FoodTile key={entry.food.id} entry={entry} action="finish" />
               ))}
             </div>
           </section>

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import { ArrowLeft } from "lucide-react";
 import { FoodEmoji } from "@/components/kitchen/FoodTile";
+import { FinishButton } from "@/components/kitchen/FinishButton";
 import { daysBetween, pantryEntry, type FoodHistory, type PantryEntry } from "@/lib/pantry/model";
 import { getFoodHistory, getLastReceiptDate } from "@/lib/pantry/queries";
 import { formatDuration, leftLabel, money, shortDate, tintVar, yearDate } from "@/lib/pantry/format";
@@ -126,6 +127,9 @@ export default async function FoodPage({ params }: Props) {
             </div>
           </dl>
           <p className="mt-6 max-w-lg text-ink-soft">{explainLifetime(entry)}</p>
+          <div className="mt-6">
+            <FinishButton slug={food.slug} finished={Boolean(entry.finishedAt)} variant="text" />
+          </div>
         </div>
       </section>
 

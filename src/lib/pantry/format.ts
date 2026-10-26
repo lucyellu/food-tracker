@@ -14,6 +14,7 @@ export function formatDuration(days: number) {
 }
 
 export function leftLabel(entry: PantryEntry) {
+  if (entry.finishedAt) return "marked used up";
   if (entry.remaining <= 0) return "used up";
   if (entry.daysLeft <= 1) return "last bits";
   return `~${formatDuration(entry.daysLeft)} left`;
