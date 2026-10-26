@@ -35,7 +35,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --paper: #000000;
     --paper-raised: #141414;
     --ink: #f5f0e6;
@@ -64,6 +64,49 @@
 
     --scrollbar-thumb: #333333;
     --scrollbar-thumb-hover: #4a4a4a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #000000;
+  --paper-raised: #141414;
+  --ink: #f5f0e6;
+  --ink-soft: #b5b0a6;
+  --ink-faint: #77736b;
+  --line: #262626;
+  --accent: #ff5a00;
+  --accent-ink: #000000;
+  --alert: #ff6a2a;
+  --shadow-object: rgba(0, 0, 0, 0.55);
+  --shadow-tile: rgba(0, 0, 0, 0);
+  --on-tint: #0d0d0d;
+
+  --tint-produce: #8fd18a;
+  --tint-protein: #ff8c6b;
+  --tint-dairy: #f3efe6;
+  --tint-bakery: #f2b705;
+  --tint-prepared: #ff5a00;
+  --tint-frozen: #b9dbea;
+  --tint-pantry: #d9cdb4;
+  --tint-snack: #f2b705;
+  --tint-drink: #9fd3d8;
+  --tint-condiment: #ff7a33;
+  --tint-spice: #ffc4b0;
+  --tint-non_food: #bdb8ae;
+
+  --scrollbar-thumb: #333333;
+  --scrollbar-thumb-hover: #4a4a4a;
+}
+
+/* Dark: follow the Tailwind dark: variant to the same switch as the variables above. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
   }
 }
 
@@ -128,7 +171,7 @@ body {
 
 /* Tile styles (Settings > Food tiles). "colour" is the default palette above. */
 @media (prefers-color-scheme: light) {
-  html[data-tiles="vivid"] {
+  html[data-tiles="vivid"]:not([data-theme="dark"]) {
     --tint-produce: #a9d99a;
     --tint-protein: #f4a58a;
     --tint-dairy: #f3ead0;
@@ -143,12 +186,31 @@ body {
     --tint-non_food: #c9c4b8;
   }
 }
+html[data-theme="light"][data-tiles="vivid"] {
+  --tint-produce: #a9d99a;
+  --tint-protein: #f4a58a;
+  --tint-dairy: #f3ead0;
+  --tint-bakery: #f2c14e;
+  --tint-prepared: #f08a4b;
+  --tint-frozen: #a9d3e6;
+  --tint-pantry: #d8c7a0;
+  --tint-snack: #f2c14e;
+  --tint-drink: #9fd3cf;
+  --tint-condiment: #f29a5c;
+  --tint-spice: #f5b79f;
+  --tint-non_food: #c9c4b8;
+}
 html[data-tiles="neutral"] .food-level {
   background: linear-gradient(
     to top,
     color-mix(in oklab, var(--ink) 16%, var(--paper-raised)) calc(var(--level) * 100%),
     var(--paper-raised) calc(var(--level) * 100%)
   );
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+html[data-tiles="clear"] .food-level {
+  background: transparent;
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
