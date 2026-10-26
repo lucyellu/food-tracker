@@ -130,6 +130,13 @@
   scrollbar-width: thin;
 }
 
+/* Room for the docked appearance panel on wide screens. */
+@media (min-width: 768px) {
+  body {
+    padding-right: var(--dock, 0px);
+  }
+}
+
 body {
   background: var(--paper);
   color: var(--ink);
