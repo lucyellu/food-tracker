@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { unstable_cache } from "next/cache";
-import { desc, sql } from "drizzle-orm";
+import { desc, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { FOOD_DATA_CACHE_SECONDS, FOOD_DATA_CACHE_TAG } from "@/lib/food-data-cache";
 import { RecategorizeButton } from "./RecategorizeButton";
-import { PotentialDuplicates, type DuplicateGroup } from "./PotentialDuplicates";
+import { PotentialDuplicates, type DuplicateGroup, type DuplicateItem } from "./PotentialDuplicates";
+import { itemKey, reconcileDuplicateReceipts } from "@/lib/receipts/reconcile";
 import { SpendSummary } from "./SpendSummary";
 
 export const dynamic = "force-dynamic";
@@ -100,28 +101,71 @@ function sortedReceipts(receipts: Awaited<ReturnType<typeof getReceipts>>, sort:
   });
 }
 
-// Groups receipts that share an exact purchase date and total — the strongest signal
-// for an accidental duplicate (e.g. the same order scanned from two emails).
-function buildDuplicateGroups(receipts: Awaited<ReturnType<typeof getReceipts>>): DuplicateGroup[] {
-  const byKey = new Map<string, DuplicateGroup>();
+// Groups receipts that look like the same purchase: an exact purchase date and total, or the fuzzier
+// same-trip match used by the auto-merge (substitutions and refunds shift items and totals slightly).
+async function buildDuplicateGroups(receipts: Awaited<ReturnType<typeof getReceipts>>): Promise<DuplicateGroup[]> {
+  const byId = new Map(receipts.map((r) => [r.id, r]));
+  const parent = new Map<number, number>();
+  const find = (x: number): number => {
+    const p = parent.get(x) ?? x;
+    if (p === x) return x;
+    const root = find(p);
+    parent.set(x, root);
+    return root;
+  };
+  const union = (a: number, b: number) => parent.set(find(a), find(b));
+
+  const exact = new Map<string, number[]>();
   for (const r of receipts) {
     if (!r.purchasedAt || r.total == null) continue;
     const key = `${r.purchasedAt}|${Math.round(r.total * 100)}`;
-    let group = byKey.get(key);
-    if (!group) {
-      group = { key, purchasedAt: r.purchasedAt, total: r.total, receipts: [] };
-      byKey.set(key, group);
-    }
-    group.receipts.push({
-      id: r.id,
-      vendor: r.vendor,
-      source: r.source,
-      sourceLabel: SOURCE_LABEL[r.source] ?? r.source,
-      itemCount: Number(r.itemCount),
-    });
+    exact.set(key, [...(exact.get(key) ?? []), r.id]);
   }
-  return [...byKey.values()]
-    .filter((group) => group.receipts.length > 1)
+  for (const ids of exact.values()) for (const id of ids.slice(1)) union(ids[0], id);
+  for (const m of await reconcileDuplicateReceipts({ dryRun: true })) union(m.keepId, m.dropId);
+
+  const members = new Map<number, number[]>();
+  for (const r of receipts) {
+    const root = find(r.id);
+    members.set(root, [...(members.get(root) ?? []), r.id]);
+  }
+  const groupIds = [...members.values()].filter((ids) => ids.length > 1);
+  if (groupIds.length === 0) return [];
+
+  const items = await db
+    .select({
+      id: schema.lineItems.id,
+      receiptId: schema.lineItems.receiptId,
+      rawName: schema.lineItems.rawName,
+      quantity: schema.lineItems.quantity,
+      price: schema.lineItems.price,
+    })
+    .from(schema.lineItems)
+    .where(inArray(schema.lineItems.receiptId, groupIds.flat()));
+  const itemsByReceipt = new Map<number, DuplicateItem[]>();
+  for (const item of items) {
+    itemsByReceipt.set(item.receiptId, [
+      ...(itemsByReceipt.get(item.receiptId) ?? []),
+      { id: item.id, name: item.rawName, key: itemKey(item.rawName), quantity: item.quantity, price: item.price },
+    ]);
+  }
+
+  return groupIds
+    .map((ids) => {
+      const rs = ids.map((id) => byId.get(id)!).sort((a, b) => Number(b.itemCount) - Number(a.itemCount) || a.id - b.id);
+      return {
+        key: ids.slice().sort((a, b) => a - b).join("-"),
+        purchasedAt: rs.map((r) => r.purchasedAt ?? "").sort().at(-1) ?? "",
+        receipts: rs.map((r) => ({
+          id: r.id,
+          vendor: r.vendor,
+          purchasedAt: r.purchasedAt,
+          total: r.total,
+          sourceLabel: SOURCE_LABEL[r.source] ?? r.source,
+          items: itemsByReceipt.get(r.id) ?? [],
+        })),
+      };
+    })
     .sort((a, b) => b.purchasedAt.localeCompare(a.purchasedAt));
 }
 
@@ -166,7 +210,7 @@ export default async function ReceiptsPage({
   const sort = parseSort(params.sort);
   const dir = parseDir(params.dir);
   const receipts = sortedReceipts(await getCachedReceipts(), sort, dir);
-  const duplicateGroups = buildDuplicateGroups(receipts);
+  const duplicateGroups = await buildDuplicateGroups(receipts);
 
   if (receipts.length === 0) {
     return (

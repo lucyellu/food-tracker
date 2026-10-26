@@ -31,7 +31,7 @@ export function vendorFamily(vendor: string | null) {
   return v.replace(/\s*-\s*order.*$/, "").replace(/\s+/g, " ").trim();
 }
 
-function itemKey(rawName: string) {
+export function itemKey(rawName: string) {
   return rawName.toLowerCase().replace(/^\[refunded\]\s*/, "").replace(/\s+/g, " ").trim();
 }
 
