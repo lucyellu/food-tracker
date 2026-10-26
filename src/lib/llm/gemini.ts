@@ -9,7 +9,7 @@ function getModel() {
   }
   const genai = new GoogleGenerativeAI(apiKey);
   return genai.getGenerativeModel({
-    model: "gemini-2.0-flash",
+    model: process.env.GEMINI_MODEL || "gemini-3.5-flash",
     generationConfig: {
       responseMimeType: "application/json",
       temperature: 0.1,
