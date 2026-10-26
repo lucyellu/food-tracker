@@ -56,3 +56,6 @@ secrets.txt
 
 # locally parsed receipt exports may contain personal purchase data
 /parsed-receipts/
+
+# secrets
+assets/keys/
