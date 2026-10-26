@@ -199,6 +199,8 @@ export function PotentialDuplicates({ groups }: { groups: DuplicateGroup[] }) {
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [merged, setMerged] = useState<Set<string>>(new Set());
 
+  // localStorage is only readable after hydration.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setDismissed(loadDismissed()), []);
 
   const visible = groups.filter((g) => !dismissed.has(g.key) && !merged.has(g.key));
