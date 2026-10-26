@@ -8,6 +8,7 @@ import { cannabisNutritionForParsedItem } from "@/lib/receipts/cannabis";
 import { categorizeItem } from "@/lib/products/category";
 import { resolveReceiptPurchasedDate } from "@/lib/receipts/dates";
 import { enrichReceiptNutrition } from "@/lib/nutrition/usda";
+import { canonicalizeProducts } from "@/lib/foods/canonicalize";
 
 type PersistReceiptInput = {
   parsed: ParsedReceipt;
@@ -101,6 +102,14 @@ export async function persistParsedReceipt({
     await enrichReceiptNutrition(receipt.id).catch(err => {
       console.error("Auto-nutrition enrich failed for receipt", receipt.id, err);
     });
+
+    // Group new products into canonical foods so they show up in the pantry.
+    const productIds = [...new Set(products.flatMap((p) => (p?.id ? [p.id] : [])))];
+    if (productIds.length > 0) {
+      await canonicalizeProducts({ productIds, limit: productIds.length }).catch((err) => {
+        console.error("Food canonicalize failed for receipt", receipt.id, err);
+      });
+    }
   }
 
   return receipt;

@@ -41,10 +41,47 @@ export const receipts = sqliteTable(
   ],
 );
 
+export const FOOD_KINDS = [
+  "produce",
+  "protein",
+  "dairy",
+  "bakery",
+  "prepared",
+  "frozen",
+  "pantry",
+  "snack",
+  "drink",
+  "condiment",
+  "spice",
+  "non_food",
+] as const;
+
+// A canonical food ("cilantro", "soy sauce") that many retailer products roll up
+// into. Lifetimes are learned per food so three cilantro SKUs share one history.
+export const foods = sqliteTable(
+  "foods",
+  {
+    id: id(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    emoji: text("emoji"),
+    kind: text("kind", { enum: FOOD_KINDS }).notNull(),
+    // Days before an opened/bought package spoils.
+    shelfLifeDays: integer("shelf_life_days").notNull(),
+    // Days one person typically takes to finish a package; used until enough
+    // repurchases exist to learn the real interval.
+    typicalFinishDays: integer("typical_finish_days").notNull(),
+    imageUrl: text("image_url"),
+    createdAt: timestamp("created_at"),
+  },
+  (t) => [uniqueIndex("foods_slug_unique").on(t.slug)],
+);
+
 export const productCatalog = sqliteTable(
   "product_catalog",
   {
     id: id(),
+    foodId: integer("food_id").references(() => foods.id, { onDelete: "set null" }),
     productKey: text("product_key").notNull(),
     displayName: text("display_name").notNull(),
     normalizedName: text("normalized_name"),
@@ -67,6 +104,7 @@ export const productCatalog = sqliteTable(
     index("product_catalog_retailer_sku_idx").on(t.retailerSku),
     index("product_catalog_barcode_idx").on(t.barcode),
     index("product_catalog_external_idx").on(t.externalSource, t.externalId),
+    index("product_catalog_food_id_idx").on(t.foodId),
   ],
 );
 

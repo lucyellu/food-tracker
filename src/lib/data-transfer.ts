@@ -1,9 +1,11 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { FOOD_KINDS } from "@/db/schema";
 
-export const DATA_EXPORT_VERSION = 3;
+export const DATA_EXPORT_VERSION = 4;
 
 type ReceiptRow = typeof schema.receipts.$inferSelect;
+type FoodRow = typeof schema.foods.$inferSelect;
 type ProductRow = typeof schema.productCatalog.$inferSelect;
 type LineItemRow = typeof schema.lineItems.$inferSelect;
 type NutritionRow = typeof schema.nutritionFacts.$inferSelect;
@@ -15,6 +17,7 @@ type ImportableSettings = Pick<SettingsRow, "people" | "days">;
 type DataExport = {
   version: number;
   exportedAt: string;
+  foods: FoodRow[];
   productCatalog: ProductRow[];
   receipts: ReceiptRow[];
   lineItems: LineItemRow[];
@@ -29,6 +32,7 @@ const PARSE_STATUSES = new Set(["pending", "parsed", "failed"]);
 const ITEM_STATUSES = new Set(["available", "pantry", "fridge", "consumed", "disposed", "unavailable", "refunded"]);
 const NUTRITION_STATUSES = new Set(["pending", "matched", "unmatched", "manual"]);
 const LOG_UNITS = new Set(["item", "serving", "g", "100g"]);
+const FOOD_KIND_SET = new Set<string>(FOOD_KINDS);
 const MAX_REASONABLE_LINE_GRAMS = 100_000;
 const MAX_REASONABLE_LINE_CALORIES = 100_000;
 
@@ -106,7 +110,8 @@ function logsByReceipt(logs: ConsumptionLogRow[]) {
 }
 
 export async function exportFoodTrackerData(): Promise<DataExport> {
-  const [productCatalog, receipts, lineItems, nutritionFacts, consumptionLogs, settingsRows] = await Promise.all([
+  const [foods, productCatalog, receipts, lineItems, nutritionFacts, consumptionLogs, settingsRows] = await Promise.all([
+    db.select().from(schema.foods).orderBy(asc(schema.foods.id)),
     db.select().from(schema.productCatalog).orderBy(asc(schema.productCatalog.id)),
     db.select().from(schema.receipts).orderBy(asc(schema.receipts.id)),
     db.select().from(schema.lineItems).orderBy(asc(schema.lineItems.id)),
@@ -120,6 +125,7 @@ export async function exportFoodTrackerData(): Promise<DataExport> {
   return {
     version: DATA_EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
+    foods,
     productCatalog,
     receipts,
     lineItems,
@@ -133,6 +139,7 @@ export async function importFoodTrackerData(input: unknown) {
   const payload = asRecord(input);
   if (!payload) throw new Error("Import file must be a JSON object.");
 
+  const incomingFoods = Array.isArray(payload.foods) ? payload.foods : [];
   const incomingProducts = Array.isArray(payload.productCatalog) ? payload.productCatalog : [];
   const incomingReceipts = Array.isArray(payload.receipts) ? payload.receipts : [];
   const incomingItems = Array.isArray(payload.lineItems) ? payload.lineItems : [];
@@ -164,12 +171,38 @@ export async function importFoodTrackerData(input: unknown) {
   let importedNutritionFacts = 0;
   let importedLogs = 0;
 
+  // Foods are keyed by slug, so re-importing merges into existing groupings.
+  const importedFoodIds = new Map<number, number>();
+  for (const raw of incomingFoods) {
+    const food = normalizeFood(raw);
+    if (!food) continue;
+    const [createdFood] = await db
+      .insert(schema.foods)
+      .values({
+        slug: food.slug,
+        name: food.name,
+        emoji: food.emoji,
+        kind: food.kind,
+        shelfLifeDays: food.shelfLifeDays,
+        typicalFinishDays: food.typicalFinishDays,
+        imageUrl: food.imageUrl,
+      })
+      .onConflictDoUpdate({
+        target: schema.foods.slug,
+        set: { imageUrl: sql`coalesce(${schema.foods.imageUrl}, excluded.image_url)` },
+      })
+      .returning();
+    importedFoodIds.set(food.id, createdFood.id);
+  }
+
   for (const raw of incomingProducts) {
     const product = normalizeProduct(raw);
     if (!product) continue;
+    const foodId = product.foodId != null ? (importedFoodIds.get(product.foodId) ?? null) : null;
     const [createdProduct] = await db
       .insert(schema.productCatalog)
       .values({
+        foodId,
         productKey: product.productKey,
         displayName: product.displayName,
         normalizedName: product.normalizedName,
@@ -187,6 +220,7 @@ export async function importFoodTrackerData(input: unknown) {
       .onConflictDoUpdate({
         target: schema.productCatalog.productKey,
         set: {
+          foodId: foodId ?? sql`${schema.productCatalog.foodId}`,
           displayName: product.displayName,
           normalizedName: product.normalizedName,
           category: product.category,
@@ -351,6 +385,26 @@ function normalizeReceipt(value: unknown): ReceiptRow | null {
   };
 }
 
+function normalizeFood(value: unknown): FoodRow | null {
+  const row = asRecord(value);
+  const id = asInteger(row?.id);
+  const slug = asString(row?.slug);
+  const name = asString(row?.name);
+  const shelfLifeDays = asInteger(row?.shelfLifeDays);
+  if (!row || !id || !slug || !name || !shelfLifeDays) return null;
+  return {
+    id,
+    slug,
+    name,
+    emoji: asString(row.emoji),
+    kind: pickEnum(row.kind, FOOD_KIND_SET, "pantry") as FoodRow["kind"],
+    shelfLifeDays,
+    typicalFinishDays: asInteger(row.typicalFinishDays) ?? shelfLifeDays,
+    imageUrl: asString(row.imageUrl),
+    createdAt: new Date(asDateString(row.createdAt) ?? Date.now()),
+  };
+}
+
 function normalizeProduct(value: unknown): ProductRow | null {
   const row = asRecord(value);
   const id = asInteger(row?.id);
@@ -359,6 +413,7 @@ function normalizeProduct(value: unknown): ProductRow | null {
   if (!row || !id || !productKey || !displayName) return null;
   return {
     id,
+    foodId: asInteger(row.foodId),
     productKey,
     displayName,
     normalizedName: asString(row.normalizedName),
