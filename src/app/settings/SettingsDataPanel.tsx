@@ -2,6 +2,7 @@
 
 import { Download, Upload } from "lucide-react";
 import { useRef, useState } from "react";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 type ImportSummary = {
   importedReceipts: number;
@@ -78,10 +79,9 @@ export function SettingsDataPanel() {
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <CollapsibleCard title="Data backup">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold">Data backup</h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
             Export receipts, items, nutrition facts, consumption logs, and people/day settings as JSON. Gmail OAuth
             tokens and encrypted email credentials are never included.
@@ -125,6 +125,6 @@ export function SettingsDataPanel() {
           {error}
         </div>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

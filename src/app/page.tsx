@@ -23,12 +23,12 @@ function StatTile({
   return (
     <div
       className="flex min-h-36 flex-col justify-between rounded-[1.6rem] p-5"
-      style={{ background: tintVar(tint) }}
+      style={{ background: tintVar(tint), color: "var(--on-tint)" }}
     >
-      <div className="label-mono text-ink-soft">{label}</div>
+      <div className="label-mono opacity-70">{label}</div>
       <div>
         <div className="font-display text-5xl leading-none tracking-tight">{value}</div>
-        {note && <div className="mt-2 text-sm text-ink-soft">{note}</div>}
+        {note && <div className="mt-2 text-sm opacity-70">{note}</div>}
       </div>
     </div>
   );
@@ -65,7 +65,7 @@ function HaulRow({ haul }: { haul: RecentHaul }) {
             className="flex h-11 w-11 items-center justify-center rounded-xl"
             style={{ background: tintVar(item.kind ?? "non_food") } as CSSProperties}
           >
-            <FoodEmoji emoji={item.emoji} name={item.name} className="text-2xl" />
+            <FoodEmoji emoji={item.emoji} name={item.name} imageUrl={item.imageUrl} className="text-2xl" />
           </span>
         ))}
         {stickers.length > shown.length && (
@@ -106,7 +106,7 @@ export default async function KitchenPage() {
       {stale && lastReceipt && (
         <section
           className="flex flex-col gap-3 rounded-[1.6rem] p-5 sm:flex-row sm:items-center sm:justify-between"
-          style={{ background: tintVar("snack") }}
+          style={{ background: tintVar("snack"), color: "var(--on-tint)" }}
         >
           <p className="text-sm">
             <span className="font-medium">No receipts for {formatDuration(staleDays)}.</span>{" "}

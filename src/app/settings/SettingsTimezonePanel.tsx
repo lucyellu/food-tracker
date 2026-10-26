@@ -13,6 +13,7 @@ import {
   isTimeZoneMode,
   isValidTimeZone,
 } from "@/lib/timezone";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
@@ -73,13 +74,9 @@ export function SettingsTimezonePanel() {
   const activeTimeZone = mode === "manual" ? manualTimeZone : detectedTimeZone;
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <CollapsibleCard title="Timezone" icon={<Clock className="size-4" />}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="inline-flex items-center gap-2 text-base font-semibold">
-            <Clock className="size-4" />
-            Timezone
-          </h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
             Used for Today, calendar highlighting, and day-based dashboard ranges.
           </p>
@@ -144,6 +141,6 @@ export function SettingsTimezonePanel() {
           {message}
         </div>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

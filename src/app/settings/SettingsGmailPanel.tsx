@@ -4,6 +4,7 @@ import { CheckCircle2, Cpu, ExternalLink, KeyRound, Mail, Pause, Play, RefreshCw
 import { useEffect, useRef, useState } from "react";
 import { EmailScanProgress } from "@/components/EmailScanProgress";
 import { mainVendorMarks, VendorMark } from "@/components/VendorMark";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 type EmailAccount = {
   id: number;
@@ -196,7 +197,9 @@ function syncMessage(data: SyncResponse, remaining: number | null) {
   const accountErrors = data.accounts?.filter((account) => account.error) ?? [];
   const errorSuffix =
     accountErrors.length > 0
-      ? ` ${accountErrors.length} inbox${accountErrors.length === 1 ? "" : "es"} need attention.`
+      ? ` ${accountErrors.length} inbox${accountErrors.length === 1 ? "" : "es"} need attention: ${accountErrors
+          .map((account) => `${account.accountEmail ?? "inbox"} (${account.error})`)
+          .join("; ")}`
       : "";
   const skipDetails = [
     data.skippedPreviouslySeen ? `${data.skippedPreviouslySeen} already ruled out` : null,
@@ -650,10 +653,9 @@ export function SettingsGmailPanel() {
   const accounts = status?.accounts ?? [];
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <CollapsibleCard title="Inbox parser">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold">Inbox parser</h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
             Connect Gmail or Yahoo inboxes and turn purchase emails into reusable inventory records.
           </p>
@@ -930,6 +932,6 @@ export function SettingsGmailPanel() {
         refresh={() => void loadIngestLog()}
         loading={emailLogsLoading}
       />
-    </section>
+    </CollapsibleCard>
   );
 }

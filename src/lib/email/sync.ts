@@ -1,3 +1,4 @@
+import { reconcileDuplicateReceipts } from "@/lib/receipts/reconcile";
 import { decryptEmailAccountSecret, getEmailAccount, listActiveEmailAccounts } from "./accounts";
 import { processImapAccount, type EmailSyncResult } from "./imap";
 import { processGmailAccount } from "@/lib/gmail/messages";
@@ -180,6 +181,13 @@ export async function processEmailInboxes({
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  // Merge the same trip arriving twice (order email + receipt, vendor parser + LLM parse).
+  try {
+    result.duplicates += (await reconcileDuplicateReceipts({ dryRun: false })).length;
+  } catch (error) {
+    console.error("receipt reconcile failed", error);
   }
 
   result.query = result.accounts.map((account) => `${account.accountEmail ?? account.provider}: ${account.query}`).join(" | ");

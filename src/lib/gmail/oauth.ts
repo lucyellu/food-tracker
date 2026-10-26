@@ -136,6 +136,12 @@ export async function refreshGoogleAccessToken(
 
   const data = (await res.json()) as GoogleTokenResponse;
   if (!res.ok || data.error || !data.access_token) {
+    // invalid_grant: the saved login expired or was revoked; only reconnecting fixes it.
+    if (data.error === "invalid_grant" || res.status === 400) {
+      throw new Error(
+        "Google sign-in expired or was revoked for this inbox. Remove it and connect it again under Inbox parser.",
+      );
+    }
     throw new Error(data.error_description || data.error || "Google token refresh failed");
   }
   ensureRequiredScope(data.scope, requiredScope, missingScopeMessage);

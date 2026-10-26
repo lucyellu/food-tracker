@@ -1,31 +1,33 @@
 @import "tailwindcss";
 
-/* Warm paper, ink, and one pastel tint per food kind — the palette of
-   knolled food photography rather than a data dashboard. */
+/* Light: cream paper with soft tan tiles and a deep teal-green accent.
+   Dark: black with saturated orange, yellow and aqua tiles. */
 :root {
-  --paper: #f5f0e7;
-  --paper-raised: #fbf8f2;
-  --ink: #1f1c18;
-  --ink-soft: #5e574d;
-  --ink-faint: #9a9184;
-  --line: #e4dccd;
-  --accent: #2f4a3a;
-  --accent-ink: #f5f0e7;
+  --paper: #f5f3e6;
+  --paper-raised: #faf8ef;
+  --ink: #1c1b17;
+  --ink-soft: #55524a;
+  --ink-faint: #8d8a7e;
+  --line: #dcd7c4;
+  --accent: #174a40;
+  --accent-ink: #f5f3e6;
   --alert: #b85a33;
   --shadow-object: rgba(60, 40, 20, 0.16);
+  --shadow-tile: rgba(60, 40, 20, 0.22);
+  --on-tint: #1c1b17;
 
-  --tint-produce: #dce6c9;
-  --tint-protein: #f0d7d0;
-  --tint-dairy: #dde6ee;
-  --tint-bakery: #efdfc2;
-  --tint-prepared: #f4dcc6;
-  --tint-frozen: #d4e5ec;
-  --tint-pantry: #e9e2d2;
-  --tint-snack: #f3e8b6;
-  --tint-drink: #cfe3e8;
-  --tint-condiment: #edcfbc;
-  --tint-spice: #f1ddae;
-  --tint-non_food: #e5e1da;
+  --tint-produce: #e4e0c0;
+  --tint-protein: #ecd9c6;
+  --tint-dairy: #e8e2d0;
+  --tint-bakery: #ecdcbc;
+  --tint-prepared: #eed9bd;
+  --tint-frozen: #dfe3d8;
+  --tint-pantry: #ebe0ca;
+  --tint-snack: #efe0b8;
+  --tint-drink: #dde2d2;
+  --tint-condiment: #ecd5bd;
+  --tint-spice: #eddcb2;
+  --tint-non_food: #e4dfd2;
 
   --scrollbar-track: var(--paper);
   --scrollbar-thumb: #cfc5b4;
@@ -34,32 +36,34 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #1a1815;
-    --paper-raised: #23201c;
-    --ink: #f1ebdf;
-    --ink-soft: #b9b0a2;
-    --ink-faint: #7e766a;
-    --line: #34302a;
-    --accent: #b7d3a8;
-    --accent-ink: #1a1815;
-    --alert: #e58d64;
-    --shadow-object: rgba(0, 0, 0, 0.45);
+    --paper: #000000;
+    --paper-raised: #141414;
+    --ink: #f5f0e6;
+    --ink-soft: #b5b0a6;
+    --ink-faint: #77736b;
+    --line: #262626;
+    --accent: #ff5a00;
+    --accent-ink: #000000;
+    --alert: #ff6a2a;
+    --shadow-object: rgba(0, 0, 0, 0.55);
+    --shadow-tile: rgba(0, 0, 0, 0);
+    --on-tint: #0d0d0d;
 
-    --tint-produce: #3a4433;
-    --tint-protein: #4a3532;
-    --tint-dairy: #33404a;
-    --tint-bakery: #4a3f2c;
-    --tint-prepared: #4b3b2d;
-    --tint-frozen: #2f4048;
-    --tint-pantry: #403a30;
-    --tint-snack: #4a4429;
-    --tint-drink: #2c4247;
-    --tint-condiment: #4a3328;
-    --tint-spice: #4a3d24;
-    --tint-non_food: #3a3833;
+    --tint-produce: #8fd18a;
+    --tint-protein: #ff8c6b;
+    --tint-dairy: #f3efe6;
+    --tint-bakery: #f2b705;
+    --tint-prepared: #ff5a00;
+    --tint-frozen: #b9dbea;
+    --tint-pantry: #d9cdb4;
+    --tint-snack: #f2b705;
+    --tint-drink: #9fd3d8;
+    --tint-condiment: #ff7a33;
+    --tint-spice: #ffc4b0;
+    --tint-non_food: #bdb8ae;
 
-    --scrollbar-thumb: #4a443b;
-    --scrollbar-thumb-hover: #5e574d;
+    --scrollbar-thumb: #333333;
+    --scrollbar-thumb-hover: #4a4a4a;
   }
 }
 
@@ -114,6 +118,7 @@ body {
 
 /* A tile drains from the top as the food gets used up. --level is 0..1. */
 .food-level {
+  box-shadow: 0 3px 8px -2px var(--shadow-tile);
   background: linear-gradient(
     to top,
     var(--tint) calc(var(--level) * 100%),

@@ -95,6 +95,8 @@ export function zoneForKind(kind: FoodKind): Zone | null {
 
 const DAY_MS = 86_400_000;
 const MIN_GAPS_TO_LEARN = 2;
+// Only foods bought within this window count as on hand, however slowly they finish.
+export const ON_HAND_WINDOW_DAYS = 14;
 
 export function daysBetween(from: string, to: string) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
@@ -181,7 +183,7 @@ export function pantrySnapshot(histories: FoodHistory[], asOf: string): PantrySn
     .map((h) => pantryEntry(h, asOf))
     .filter((e): e is PantryEntry => e !== null && zoneForKind(e.food.kind) !== null);
 
-  const stocked = entries.filter((e) => e.remaining > 0);
+  const stocked = entries.filter((e) => e.remaining > 0 && e.daysSince <= ON_HAND_WINDOW_DAYS);
   const zones = ZONES.map((zone) => ({
     ...zone,
     entries: stocked

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Brain, CheckCircle2, CircleSlash, Loader2, PlugZap, Sparkles, TriangleAlert } from "lucide-react";
 import type { LlmProviderStatus } from "@/lib/llm/status";
+import { CollapsibleCard } from "./CollapsibleCard";
 
 type LlmStatusResponse = {
   providers: LlmProviderStatus[];
@@ -78,13 +79,9 @@ export function SettingsLlmConnectionPanel({
   }
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <CollapsibleCard title="LLM providers" icon={<Brain className="size-4" />}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="inline-flex items-center gap-2 text-base font-semibold">
-            <Brain className="size-4" />
-            LLM providers
-          </h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
             Receipt parsing uses known vendor parsers first, then configured model providers for unknown formats.
           </p>
@@ -145,6 +142,6 @@ export function SettingsLlmConnectionPanel({
           {error}
         </div>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

@@ -3,7 +3,7 @@ setlocal
 
 set PORT=3000
 set DIR=%~dp0
-set APP_URL=http://localhost:%PORT%/dashboard
+set APP_URL=http://localhost:%PORT%/
 set LOCAL_DB=%DIR%tmp\food-tracker-local.db
 
 if not exist "%LOCAL_DB%" (
@@ -40,7 +40,7 @@ for %%P in (
 )
 
 if defined CHROME (
-    start "" %CHROME% --app="%APP_URL%"
+    start "" %CHROME% "%APP_URL%"
 ) else (
     start "" "%APP_URL%"
 )

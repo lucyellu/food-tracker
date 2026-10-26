@@ -135,7 +135,7 @@ export async function parseReceipt(input: ParseInput): Promise<ParsedReceipt> {
   } catch (e) {
     if (isRateLimitError(e)) {
       tripGeminiCircuit();
-      throw new Error("PDF skipped: Gemini is rate-limited and PDFs have no text fallback.");
+      throw new Error("PDF skipped: Gemini free quota is used up and PDFs have no text fallback.");
     }
     throw e;
   }

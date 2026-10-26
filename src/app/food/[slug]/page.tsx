@@ -99,7 +99,7 @@ export default async function FoodPage({ params }: Props) {
 
       <section className="grid gap-8 md:grid-cols-[minmax(0,26rem)_1fr] md:items-end">
         <div style={style} className="food-level flex aspect-[4/5] items-center justify-center rounded-[2rem]">
-          <FoodEmoji emoji={food.emoji} name={food.name} className="text-[9rem] sm:text-[11rem]" />
+          <FoodEmoji emoji={food.emoji} name={food.name} imageUrl={food.imageUrl} className="text-[9rem] sm:text-[11rem]" />
         </div>
         <div>
           <div className="label-mono text-ink-faint">

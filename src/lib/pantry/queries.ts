@@ -97,7 +97,7 @@ export type RecentHaul = {
   vendor: string | null;
   date: string;
   total: number | null;
-  items: { name: string; emoji: string | null; slug: string | null; kind: string | null }[];
+  items: { name: string; emoji: string | null; imageUrl: string | null; slug: string | null; kind: string | null }[];
 };
 
 async function loadRecentHauls(limit: number): Promise<RecentHaul[]> {
@@ -120,6 +120,7 @@ async function loadRecentHauls(limit: number): Promise<RecentHaul[]> {
       rawName: schema.lineItems.rawName,
       foodName: schema.foods.name,
       emoji: schema.foods.emoji,
+      imageUrl: schema.foods.imageUrl,
       slug: schema.foods.slug,
       kind: schema.foods.kind,
     })
@@ -140,7 +141,7 @@ async function loadRecentHauls(limit: number): Promise<RecentHaul[]> {
     total: r.total,
     items: items
       .filter((i) => i.receiptId === r.id)
-      .map((i) => ({ name: i.foodName ?? i.rawName, emoji: i.emoji, slug: i.slug, kind: i.kind })),
+      .map((i) => ({ name: i.foodName ?? i.rawName, emoji: i.emoji, imageUrl: i.imageUrl, slug: i.slug, kind: i.kind })),
   }));
 }
 
