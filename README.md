@@ -95,25 +95,3 @@ npm run db:push
 That produces an empty Food Tracker database. The app will create rows again as
 receipts are parsed/imported.
 
-If the old Neon project is still readable, copy existing rows instead:
-
-```bash
-# 1. Create Turso DB + token, then set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN
-npm run db:push
-
-# 2. Copy existing Neon rows into the Turso database
-# Source URL: NEON_DATABASE_URL, or the legacy DATABASE_URL if still set to Neon.
-npm run db:migrate:turso
-```
-
-After the copy, set Netlify environment variables to `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Keep the old Neon URL only as `NEON_DATABASE_URL` while migration verification is underway.
-
-## Deploy to Netlify
-
-1. Push this repo to GitHub.
-2. In Netlify dashboard → "Add new site" → "Import from Git" → pick the repo.
-3. Build settings: leave defaults (`netlify.toml` configures them).
-4. Site settings → Environment variables → add `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, `USDA_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `EMAIL_ENCRYPTION_KEY` (same values as your local `.env.local`).
-5. Trigger deploy.
-
-The Phase 3.5 scheduled function (Gmail polling) will be wired into `netlify.toml` when that phase is built.
