@@ -71,6 +71,11 @@ async function loadFoodHistories(): Promise<FoodHistory[]> {
     };
     history.purchases.push(purchase);
   }
+  const finished = await db.select().from(schema.foodFinished);
+  for (const f of finished) {
+    const history = byFood.get(f.foodId);
+    if (history) history.finishedAt = f.finishedAt;
+  }
   return [...byFood.values()];
 }
 

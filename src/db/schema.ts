@@ -77,6 +77,19 @@ export const foods = sqliteTable(
   (t) => [uniqueIndex("foods_slug_unique").on(t.slug)],
 );
 
+// "I ate the last of it": hides a food from the pantry until it is bought again after this date.
+export const foodFinished = sqliteTable(
+  "food_finished",
+  {
+    id: id(),
+    foodId: integer("food_id")
+      .notNull()
+      .references(() => foods.id, { onDelete: "cascade" }),
+    finishedAt: text("finished_at").notNull(),
+  },
+  (t) => [uniqueIndex("food_finished_food_unique").on(t.foodId)],
+);
+
 export const productCatalog = sqliteTable(
   "product_catalog",
   {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { PantryEntry } from "@/lib/pantry/model";
 import { leftLabel, tintVar } from "@/lib/pantry/format";
+import { FinishButton } from "./FinishButton";
 
 // Shows the food's cutout photo when it has one, else its emoji. The photo is sized in em,
 // so the same text-* class that scales the emoji scales the photo too.
@@ -38,15 +39,20 @@ export function FoodTile({
   entry,
   size = "md",
   caption,
+  action,
 }: {
   entry: PantryEntry;
   size?: "sm" | "md";
   caption?: string;
+  // "finish" adds a used-it-up button, "restore" a back-in-pantry one.
+  action?: "finish" | "restore";
 }) {
   const { food } = entry;
   const style = { "--tint": tintVar(food.kind), "--level": entry.remaining } as CSSProperties;
 
   return (
+    <div className="group/tile relative">
+    {action && <FinishButton slug={food.slug} finished={action === "restore"} />}
     <Link href={`/food/${food.slug}`} className="group block focus-visible:outline-none">
       <div
         style={style}
@@ -66,5 +72,6 @@ export function FoodTile({
         <div className="label-mono mt-0.5 truncate text-ink-faint">{caption ?? leftLabel(entry)}</div>
       </div>
     </Link>
+    </div>
   );
 }

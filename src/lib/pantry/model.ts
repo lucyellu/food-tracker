@@ -40,6 +40,8 @@ export type Purchase = {
 export type FoodHistory = {
   food: PantryFood;
   purchases: Purchase[]; // ascending by date
+  // Date the user marked it used up; ignored once something is bought on or after that day.
+  finishedAt?: string | null;
 };
 
 export type Lifetime = {
@@ -63,6 +65,8 @@ export type PantryEntry = {
   // Bought regularly and due (or overdue) for a rebuy.
   rebuySoon: boolean;
   lastPurchases: Purchase[]; // purchases on the last-bought date
+  // Set when the user marked this food as used up since the last purchase.
+  finishedAt: string | null;
 };
 
 export type Zone = "fridge" | "freezer" | "cupboard" | "spices";
@@ -149,7 +153,9 @@ export function pantryEntry(history: FoodHistory, asOf: string): PantryEntry | n
   const lastBought = past[past.length - 1].date;
   const lifetime = learnLifetime(history.food, past);
   const daysSince = daysBetween(lastBought, asOf);
-  const remaining = Math.max(0, Math.min(1, 1 - daysSince / lifetime.days));
+  const finishedAt =
+    history.finishedAt && history.finishedAt >= lastBought && history.finishedAt <= asOf ? history.finishedAt : null;
+  const remaining = finishedAt ? 0 : Math.max(0, Math.min(1, 1 - daysSince / lifetime.days));
   const buyCount = uniqueDates(past).length;
   const rebuyAt = lifetime.medianGapDays ?? lifetime.days;
 
@@ -159,15 +165,17 @@ export function pantryEntry(history: FoodHistory, asOf: string): PantryEntry | n
     daysSince,
     lifetime,
     remaining,
-    daysLeft: Math.max(0, lifetime.days - daysSince),
+    daysLeft: finishedAt ? 0 : Math.max(0, lifetime.days - daysSince),
     level: levelFor(remaining),
     buyCount,
     rebuySoon:
+      !finishedAt &&
       lifetime.basis === "learned" &&
       SLOW_KINDS.has(history.food.kind) &&
       daysSince >= rebuyAt * 0.9 &&
       daysSince <= rebuyAt * 1.3,
     lastPurchases: past.filter((p) => p.date === lastBought),
+    finishedAt,
   };
 }
 
