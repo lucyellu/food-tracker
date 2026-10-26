@@ -176,7 +176,7 @@ export default async function ReceiptsPage({
           Add one to see it here.
         </p>
         <Link
-          href="/"
+          href="/add"
           className="inline-block px-4 py-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-sm font-medium"
         >
           Add receipt

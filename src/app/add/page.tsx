@@ -579,7 +579,7 @@ export default function Home() {
               </>
             ) : (
               <a
-                href="/api/google/photos/auth?returnTo=/"
+                href="/api/google/photos/auth?returnTo=/add"
                 className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
                   photosStatus?.configured
                     ? "bg-zinc-900 text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900"
